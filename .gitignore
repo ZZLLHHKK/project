@@ -1,0 +1,33 @@
+# 虛擬環境
+.venv/
+venv/
+env/
+*.venv
+
+# Python 快取與編譯檔
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# 運行時產生的大檔或臨時資料
+data/recordings/*
+data/*.wav
+data/input.txt
+data/output.txt
+data/logs/*
+*.log
+
+# 敏感檔案（API key、金鑰、設定檔）
+.env
+*.env.*
+secrets.yaml
+config_secrets.py
+
+# whisper.cpp 編譯產生的執行檔與大模型檔
+whisper.cpp/main
+whisper.cpp/build/
+whisper.cpp/models/*.bin
+whisper.cpp/models/*.gguf
