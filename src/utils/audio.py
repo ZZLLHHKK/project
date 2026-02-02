@@ -3,16 +3,13 @@ import os
 import subprocess
 import time
 from pathlib import Path
-from src.utils.config import INPUT_TXT_PATH
+from src.utils.config import PROJECT_ROOT, DATA_DIR, RECORDINGS_DIR, INPUT_FILE, DEVICE_PORT, MODELS_DIR
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DATA_DIR = PROJECT_ROOT / "data"
-RECORDINGS_DIR = DATA_DIR / "recordings"
 RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
 
 def record_with_arecord(
     duration: int = 8,                  # 秒數
-    device: str = "plughw:3,0",         # 改成你的裝置，從 arecord -l 看
+    device: str = DEVICE_PORT,         # 改成你的裝置，從 arecord -l 看
     sample_rate: int = 16000,
     channels: int = 1
 ) -> str:
@@ -58,8 +55,8 @@ from src.utils.file_io import write_text_file
 
 def stt_pipeline(
     duration: int = 8,
-    device: str = "plughw:3,0",
-    model_name: str = "ggml-tiny.bin",
+    device: str = DEVICE_PORT,
+    model_name: str = MODELS_DIR,
     language: str = "auto"
 ) -> str:
     """
@@ -88,8 +85,8 @@ def stt_pipeline(
             return ""
 
         # 步驟3：寫入 input.txt
-        write_text_file(INPUT_TXT_PATH, text)
-        print(f"轉錄完成，已寫入 {INPUT_TXT_PATH}")
+        write_text_file(INPUT_FILE, text)
+        print(f"轉錄完成，已寫入 {INPUT_FILE}")
         print(f"辨識文字：{text}")
 
         return text

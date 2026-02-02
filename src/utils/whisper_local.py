@@ -5,16 +5,10 @@ from pathlib import Path
 
 from src.utils.config import PROJECT_ROOT, WHISPER_DIR, WHISPER_MAIN, MODELS_DIR
 
-# 由 config.py 引入
-# PROJECT_ROOT = Path(__file__).resolve().parents[2]
-# WHISPER_DIR = PROJECT_ROOT / "whisper.cpp"
-# WHISPER_MAIN = WHISPER_DIR / "build" / "bin" / "whisper-cli"
-# MODELS_DIR = WHISPER_DIR / "models"
-
 def transcribe_latest_wav(
-    model_name: str = "ggml-tiny.bin",
+    model_name: str = MODELS_DIR,
     language: str = "auto",  # 中英支援
-    threads: int = 4, # 數莓派支援4 thread
+    threads: int = 4, # 樹莓派支援4 thread
     input_wav: str = None
 ) -> str:
     """

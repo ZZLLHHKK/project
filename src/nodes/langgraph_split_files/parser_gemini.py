@@ -14,15 +14,15 @@ import os
 import re
 from typing import List, Dict, Any, Optional
 
-from google import genai  # pip install -U google-genai
+from google import genai
 
-import config
-from actions_schema import ActionDict
-from parser_fastpath import read_text, format_history_for_prompt, apply_memory_rules
-from validator import validate_actions
+import src.utils.config as config
+from src.nodes.langgraph_split_files.actions_schema import ActionDict
+from src.nodes.langgraph_split_files.parser_fastpath import read_text, format_history_for_prompt, apply_memory_rules
+from src.nodes.langgraph_split_files.validator import validate_actions
 
 # The client automatically reads GEMINI_API_KEY from environment variables.
-client = genai.Client()
+# client = genai.Client()  # 移到函式內初始化
 
 _FENCE_RE_1 = re.compile(r"^```(?:json)?\s*", re.IGNORECASE)
 _FENCE_RE_2 = re.compile(r"\s*```$", re.IGNORECASE)
@@ -32,6 +32,23 @@ def _strip_code_fences(s: str) -> str:
     s = _FENCE_RE_1.sub("", s)
     s = _FENCE_RE_2.sub("", s)
     return s.strip()
+
+def _get_gemini_client():
+    """延遲初始化 Gemini client，避免在模塊載入時就檢查 API key"""
+    try:
+        api_key = os.environ.get('GEMINI_API_KEY')
+        if not api_key:
+            raise ValueError(
+                "缺少 GEMINI_API_KEY 環境變數！\n"
+                "請設定環境變數：\n"
+                "export GEMINI_API_KEY='你的API金鑰'\n"
+                "或在程式中設定：\n"
+                "import os\n"
+                "os.environ['GEMINI_API_KEY'] = '你的API金鑰'"
+            )
+        return genai.Client(api_key=api_key)
+    except Exception as e:
+        raise ValueError(f"初始化 Gemini client 失敗: {e}") from e
 
 def parse_with_gemini(user_text: str, current_temp: Optional[int] = None) -> List[ActionDict]:
     """
@@ -110,8 +127,14 @@ USER COMMAND:
 Now output JSON only.
 """.strip()
 
-    resp = client.models.generate_content(model=config.GEMINI_MODEL, contents=prompt)
-    raw = _strip_code_fences((resp.text or ""))
+    # 延遲初始化 client
+    client = _get_gemini_client()
+    
+    response = client.models.generate_content(
+        model=config.GEMINI_MODEL,
+        contents=prompt
+    )
+    raw = _strip_code_fences((response.text or ""))
 
     # Parse JSON
     try:

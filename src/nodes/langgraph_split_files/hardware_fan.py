@@ -8,7 +8,7 @@ LangGraph node usage:
 """
 from __future__ import annotations
 
-import config
+import src.utils.config as config
 
 try:
     import RPi.GPIO as GPIO  # type: ignore

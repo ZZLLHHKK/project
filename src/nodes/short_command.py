@@ -1,4 +1,5 @@
 # src/nodes/short_command.py
+# 略
 
 SHORT_COMMANDS = {
     # 開/關燈（中英 + 常見誤認）

@@ -9,8 +9,8 @@ from __future__ import annotations
 from typing import List, Dict, Any, Optional
 import math
 
-import config
-from actions_schema import ActionDict
+import src.utils.config as config
+from src.nodes.langgraph_split_files.actions_schema import ActionDict
 
 def _to_int_round_half_up(x: float) -> int:
     return int(math.floor(x + 0.5))

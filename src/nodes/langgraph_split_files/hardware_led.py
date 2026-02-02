@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-import config
+import src.utils.config as config
 
 try:
     import RPi.GPIO as GPIO  # type: ignore

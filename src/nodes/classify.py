@@ -1,3 +1,5 @@
+# 略
+
 from src.nodes.short_command import match_short_command
 import re
 

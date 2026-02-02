@@ -77,7 +77,7 @@ def action_to_line(action: Union[Action, ActionDict]) -> str:
 def actions_to_text(actions: List[Union[Action, ActionDict]]) -> str:
     return "\n".join(action_to_line(a) for a in actions) + ("\n" if actions else "")
 
-def parse_action_line(line: str) -> Optional[ActionDict]:
+def parse_action_line(line: str) -> Optional[ActionDict]: # 主要做完整動作
     """
     Parse legacy action line:
       SET_TEMP 26

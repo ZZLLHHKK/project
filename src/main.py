@@ -1,57 +1,130 @@
-from src.utils.audio import record_with_arecord, stt_pipeline
-from src.utils.file_io import read_text_file, write_text_file, write_output
-from src.utils.config import INPUT_TXT_PATH, OUTPUT_TXT_PATH
-# 之後會加的
-from src.nodes.classify import classify_input  
+import os
+import sys
+from src.graph import app  # 引入編譯好的 LangGraph app
+from src.nodes.langgraph_split_files.hardware_led import setup as led_setup, cleanup as led_cleanup
+from src.nodes.langgraph_split_files.hardware_fan import setup as fan_setup, cleanup as fan_cleanup  
+from src.nodes.langgraph_split_files.hardware_7seg import SevenSegDisplay
 import time
 
-def main():
+# 檢查並設定 Gemini API Key
+def setup_gemini_api():
+    """檢查並設定 Gemini API Key"""
+    api_key = os.environ.get('GEMINI_API_KEY')
+    if not api_key:
+        print("警告: 沒有找到 GEMINI_API_KEY 環境變數")
+        print("請設定環境變數：")
+        print("export GEMINI_API_KEY='你的API金鑰'")
+        print("或者在程式中設定：")
+        api_key = input("請輸入你的 Gemini API Key (或按 Enter 跳過): ").strip()
+        if api_key:
+            os.environ['GEMINI_API_KEY'] = api_key
+            print("API Key 已設定")
+        else:
+            print("將只使用快速解析器，跳過 Gemini LLM")
+            return False
+    return True
+
+# 全局變數
+disp = None
+
+def initialize_hardware():
+    """初始化所有硬件"""
+    global disp
     try:
-        print("\n=== 等待指令... 請說話 ===")
-
-        # 註解掉的錄音部分之後再開啟
-        '''
-        wav_path = record_with_arecord(duration=6, device="plughw:3,0")
-        if not wav_path:
-            time.sleep(1)
-            continue
-        text = stt_pipeline(duration=6, device="plughw:3,0")
-        if not text:
-            time.sleep(1)
-            continue
-        '''
-
-        input_text = read_text_file(INPUT_TXT_PATH)
-        if not input_text:
-            print("input.txt 為空，等待...")
-            time.sleep(1)
-
-        print(f"\n讀到的指令:{input_text}")
-
-        classification = classify_input(input_text)
-
-        if classification["type"] == "short":
-            print("偵測到短指令！")
-            write_output(OUTPUT_TXT_PATH, classification["commands"])
-            # 之後這裡處理 short_command 的結果
-            # 例如：execute_short_command(classification["command"])
-            # write_text_file(INPUT_TXT_PATH, "")  # 清空，避免重複
-            # break  # 如果想單次結束測試
-            # 或 continue  # 繼續聽下一句
-
-        elif classification["type"] == "llm_needed":
-            print("這句話需要 LLM 分析（目前先印出）")
-            print(f"原始文字：{classification['original_text']}")
-            # 之後這裡呼叫 LLM
-            # llm_response = call_gemini(classification["original_text"])
-            # print("LLM 回應：", llm_response)
-            # write_text_file(INPUT_TXT_PATH, "")  # 清空
-            # continue
-
-    except KeyboardInterrupt:
-        print("\n結束監聽")
+        # 7段顯示器
+        disp = SevenSegDisplay()
+        disp.setup()
+        disp.start()
+        
+        # 風扇
+        fan_setup()
+        
+        # LED
+        led_setup()
+        
+        print("✓ 硬件初始化完成")
+        return True
     except Exception as e:
-        print(f"錯誤：{e}")
+        print(f"✗ 硬件初始化失敗: {e}")
+        return False
+
+def cleanup_hardware():
+    """清理硬件"""
+    global disp
+    try:
+        if disp:
+            disp.cleanup()
+        led_cleanup()
+        fan_cleanup()
+        print("✓ 硬件清理完成")
+    except Exception as e:
+        print(f"✗ 硬件清理錯誤: {e}")
+
+def run_conversation_loop():
+    """運行對話循環"""
+    print("\n=== 智能家居語音控制系統啟動 ===")
+    print("說 '結束'、'停止' 或 '再見' 來結束對話")
+    print("說話後系統會自動處理...")
+    
+    while True:
+        try:
+            # 初始狀態
+            initial_state = {
+                "input_text": "",
+                "raw_actions": [],
+                "validated_actions": [],
+                "status": "start",
+                "memory_rules": {},
+                "history": [],
+                "last_input_time": time.time(),
+                "needs_clarification": False,
+                "clarification_message": None
+            }
+            
+            print("\n等待語音輸入...")
+            
+            # 運行 LangGraph 流程
+            result = app.invoke(initial_state)
+            
+            # 檢查是否結束
+            if result.get("status") in ["end", "error"]:
+                print("對話結束")
+                break
+                
+            print(f"處理狀態: {result.get('status', 'unknown')}")
+                
+        except KeyboardInterrupt:
+            print("\n用戶中斷")
+            break
+        except Exception as e:
+            print(f"錯誤: {e}")
+            time.sleep(2)  # 錯誤後稍等再繼續
+
+def main():
+    """主函式"""
+    print("智能家居語音控制系統")
+    
+    try:
+        # 檢查 API
+        gemini_available = setup_gemini_api()
+        if gemini_available:
+            print("✓ Gemini API 可用")
+        else:
+            print("⚠ 只使用快速解析器")
+        
+        # 初始化硬件
+        if not initialize_hardware():
+            print("硬件初始化失敗，退出")
+            return
+        
+        # 運行對話循環
+        run_conversation_loop()
+        
+    except Exception as e:
+        print(f"系統錯誤: {e}")
+    finally:
+        # 確保清理
+        cleanup_hardware()
 
 if __name__ == "__main__":
     main()

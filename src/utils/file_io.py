@@ -25,7 +25,7 @@ def read_text_file(path: str) -> str:
         return ""
     
 import json
-from src.utils.config import INPUT_TXT_PATH, OUTPUT_TXT_PATH
+from src.utils.config import INPUT_FILE, OUTPUT_FILE
 from src.nodes.short_command import match_short_command
 
 def write_output(path: str, command: dict):
