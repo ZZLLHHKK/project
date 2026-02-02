@@ -17,6 +17,10 @@ data/recordings/*
 data/*.wav
 data/input.txt
 data/output.txt
+data/actions.txt
+data/memory.txt
+data/reply.txt
+data/history.jsonl
 data/logs/*
 *.log
 
@@ -27,7 +31,7 @@ secrets.yaml
 config_secrets.py
 
 # whisper.cpp 編譯產生的執行檔與大模型檔
-whisper.cpp/main
-whisper.cpp/build/
-whisper.cpp/models/*.bin
-whisper.cpp/models/*.gguf
+whisper.cpp/*
+
+#其他檔案
+scripts/test_gpio/*
