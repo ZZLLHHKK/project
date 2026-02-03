@@ -14,15 +14,6 @@ __pycache__/
 
 # 運行時產生的大檔或臨時資料
 data/recordings/*
-data/*.wav
-data/input.txt
-data/output.txt
-data/actions.txt
-data/memory.txt
-data/reply.txt
-data/history.jsonl
-data/logs/*
-*.log
 
 # 敏感檔案（API key、金鑰、設定檔）
 .env
@@ -31,6 +22,7 @@ secrets.yaml
 config_secrets.py
 
 # whisper.cpp 編譯產生的執行檔與大模型檔
+whisper.cpp/
 whisper.cpp/*
 
 #其他檔案
