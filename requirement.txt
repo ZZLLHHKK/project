@@ -16,3 +16,6 @@ langgraph-checkpoint
 langgraph-checkpoint-sqlite 
 pygraphviz
 pillow
+
+packaging==25.0.0 --force-reinstall
+ipykernel -U

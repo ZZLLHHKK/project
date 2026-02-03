@@ -31,27 +31,25 @@ def record_with_arecord(
         str(output_path)
     ]
 
-    print(f"開始錄音 {duration} 秒... 裝置：{device}")
-    print("說話中...（結束後自動存檔）")
+    #print(f"開始錄音 {duration} 秒... 裝置：{device}")
+    #print("說話中...（結束後自動存檔）")
 
     try:
         subprocess.run(cmd, check=True)
-        print(f"錄音完成，已儲存：{output_path}")
+        #print(f"錄音完成，已儲存：{output_path}")
         return str(output_path)
     except subprocess.CalledProcessError as e:
-        print(f"錄音失敗：{e}")
+        #print(f"錄音失敗：{e}")
         if os.path.exists(output_path):
             os.remove(output_path)  # 刪除壞檔
         return ""
     except FileNotFoundError:
-        print("arecord 指令不存在，請確認 ALSA 已安裝(sudo apt install alsa-utils)")
+        #print("arecord 指令不存在，請確認 ALSA 已安裝(sudo apt install alsa-utils)")
         return ""
 
 # analyze part
 from src.utils.whisper_local import transcribe_latest_wav
 from src.utils.file_io import write_text_file  
-
-# INPUT_TXT_PATH = str(PROJECT_ROOT / "data" / "input.txt")
 
 def stt_pipeline(
     duration: int = 8,
@@ -69,7 +67,7 @@ def stt_pipeline(
     # 步驟1：錄音（會覆蓋 latest.wav）
     wav_path = record_with_arecord(duration=duration, device=device)
     if not wav_path:
-        print("錄音失敗，無法繼續轉錄")
+        #print("錄音失敗，無法繼續轉錄")
         return ""
 
     # 步驟2：轉錄
@@ -81,13 +79,13 @@ def stt_pipeline(
         )
         text = text.strip()
         if not text or text == "[無辨識結果]":
-            print("轉錄結果為空或無效")
+            #print("轉錄結果為空或無效")
             return ""
 
         # 步驟3：寫入 input.txt
         write_text_file(INPUT_FILE, text)
-        print(f"轉錄完成，已寫入 {INPUT_FILE}")
-        print(f"辨識文字：{text}")
+        # print(f"轉錄完成，已寫入 {INPUT_FILE}")
+        # print(f"辨識文字：{text}")
 
         return text
 

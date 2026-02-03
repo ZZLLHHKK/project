@@ -12,8 +12,7 @@ arecord -l
 到以下檔案修改函式參數:
 
 ```
-audio.py
-test_record.py
-test_stt.py
+config.py
+把 `DEVICE_PORT` 改成你usb麥克風的接口
 ```
 即可正常運行

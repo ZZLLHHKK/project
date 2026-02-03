@@ -28,6 +28,7 @@ import json
 from src.utils.config import INPUT_FILE, OUTPUT_FILE
 from src.nodes.short_command import match_short_command
 
+# 可略
 def write_output(path: str, command: dict):
     """把 short command 的 dict 寫成 JSON 檔"""
     try:

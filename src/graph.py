@@ -1,5 +1,5 @@
 from src.utils.audio import record_with_arecord, stt_pipeline
-from src.utils.file_io import read_text_file, write_text_file, write_output
+from src.utils.file_io import read_text_file, write_text_file
 from src.utils.config import *
 # DEVICE_PORT, INPUT_FILE, OUTPUT_FILE, ACTIONS_FILE, MEMORY_FILE, HISTORY_FILE, REPLY_FILE
 
@@ -11,6 +11,7 @@ from src.nodes.langgraph_split_files.validator import validate_actions
 from src.nodes.langgraph_split_files.hardware_led import setup as led_setup, set_led, cleanup as led_cleanup
 from src.nodes.langgraph_split_files.hardware_fan import setup as fan_setup, set_fan, cleanup as fan_cleanup
 from src.nodes.langgraph_split_files.hardware_7seg import SevenSegDisplay
+import src  # 導入包以訪問 disp
 
 # langgraph modules
 from typing import TypedDict, Annotated, List, Dict, Any, Optional # Imports all the data types we need
@@ -67,19 +68,20 @@ def parse_actions(state: AgentState) -> AgentState:
 
     return state
 
-def classify_decision(state: AgentState) -> AgentState:
-    """命令的類型是明確或模糊，路由函式（只回傳字串鍵）"""
-    if state["status"] == "fastpath_parsed":
-        return "explicit"
-    else:
-        return "implicit"
-
 def validate_actions_node(state: AgentState) -> AgentState:
-    """驗證動作"""
+    """驗證動作合法性"""
     
-    validated = validate_actions(state["raw_actions"])
+    validated = validate_actions(state["raw_actions"]) #可能為空列表，需返回錄音階段
     state["validated_actions"] = validated
-    state["status"] = "validated"
+    
+    if not validated:  # 如果沒有有效動作
+        state["needs_clarification"] = True
+        state["clarification_message"] = "抱歉，我無法理解您的指令。請重新說一次，例如：開啟廚房燈。"
+        state["status"] = "needs_clarification"
+    else:
+        state["status"] = "validated"
+        state["needs_clarification"] = False
+    
     return state
 
 def direct_action(state: AgentState) -> AgentState:
@@ -141,26 +143,12 @@ def init_hardware_node(state: AgentState) -> AgentState:
 
 def execute_hardware(state: AgentState) -> AgentState:
     """執行硬件動作"""
-    # 這裡需要初始化硬件（如果還沒初始化）
-    # 假設我們有全局變數
-    global disp, fan_initialized, led_initialized
-    
-    # 初始化硬件（只做一次）
-    if not fan_initialized:
-        fan_setup()
-        fan_initialized = True
-    if not led_initialized:
-        led_setup()
-        led_initialized = True
-    if 'disp' not in globals():
-        disp = SevenSegDisplay()
-        disp.setup()
-        disp.start()
+    # 硬件已在 main.py 中初始化，這裡只執行動作
     
     # 執行動作
     for action in state["validated_actions"]:
         if action["type"] == "SET_TEMP":
-            disp.set_temp(action["value"])
+            src.disp.set_temp(action["value"])
         elif action["type"] == "FAN":
             set_fan(action["state"])
         elif action["type"] == "LED":
@@ -201,7 +189,7 @@ def check_end(state: AgentState) -> AgentState:
     # 檢查超時（例如超過5分鐘無輸入）
     current_time = time.time()
     last_input = state.get("last_input_time", current_time)
-    if current_time - last_input > 300:  # 5分鐘
+    if current_time - last_input > 15:  # 15秒鐘
         state["status"] = "timeout_end"
         return state
     
@@ -211,19 +199,31 @@ def check_end(state: AgentState) -> AgentState:
         state["status"] = "user_end"
         return state
     
+    # 檢查是否需要澄清
+    if state.get("needs_clarification", False):
+        state["status"] = "needs_clarification"
+        return state
+    
     state["status"] = "continue"
     return state
 
 def should_end(state: AgentState) -> str:
     """條件函式：決定是否結束"""
-    if state.get("status") in ["timeout_end", "user_end"]:
+    if state.get("status") in ["timeout_end", "user_end", "needs_clarification"]:
         return "end"
     return "continue"
 
 def clarify_or_continue(state: AgentState) -> AgentState:
     """澄清或繼續"""
-    # 如果需要澄清（例如 gemini 無法理解），可以加入 TTS
-    # 目前先簡單處理
+    if state.get("needs_clarification", False):
+        # 輸出澄清訊息（例如通過 TTS 或寫入文件）
+        message = state.get("clarification_message", "請重新輸入指令。")
+        print(f"澄清訊息: {message}")  # 這裡可以替換為 TTS 或寫入 reply.txt
+        write_text_file(REPLY_FILE, message)  # 假設寫入回覆文件
+        # 重置標誌
+        state["needs_clarification"] = False
+        state["clarification_message"] = None
+    
     state["status"] = "ready_for_next"
     return state
 

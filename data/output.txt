@@ -1,0 +1,17 @@
+[
+  {
+    "action": "turn_on",
+    "device": "light",
+    "value": null
+  },
+  {
+    "action": "turn_on",
+    "device": "fan",
+    "value": null
+  },
+  {
+    "action": "set_temp",
+    "device": "ac",
+    "value": 25
+  }
+]

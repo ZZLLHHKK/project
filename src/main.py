@@ -1,64 +1,8 @@
 import os
 import sys
-from src.graph import app  # 引入編譯好的 LangGraph app
-from src.nodes.langgraph_split_files.hardware_led import setup as led_setup, cleanup as led_cleanup
-from src.nodes.langgraph_split_files.hardware_fan import setup as fan_setup, cleanup as fan_cleanup  
-from src.nodes.langgraph_split_files.hardware_7seg import SevenSegDisplay
 import time
-
-# 檢查並設定 Gemini API Key
-def setup_gemini_api():
-    """檢查並設定 Gemini API Key"""
-    api_key = os.environ.get('GEMINI_API_KEY')
-    if not api_key:
-        print("警告: 沒有找到 GEMINI_API_KEY 環境變數")
-        print("請設定環境變數：")
-        print("export GEMINI_API_KEY='你的API金鑰'")
-        print("或者在程式中設定：")
-        api_key = input("請輸入你的 Gemini API Key (或按 Enter 跳過): ").strip()
-        if api_key:
-            os.environ['GEMINI_API_KEY'] = api_key
-            print("API Key 已設定")
-        else:
-            print("將只使用快速解析器，跳過 Gemini LLM")
-            return False
-    return True
-
-# 全局變數
-disp = None
-
-def initialize_hardware():
-    """初始化所有硬件"""
-    global disp
-    try:
-        # 7段顯示器
-        disp = SevenSegDisplay()
-        disp.setup()
-        disp.start()
-        
-        # 風扇
-        fan_setup()
-        
-        # LED
-        led_setup()
-        
-        print("✓ 硬件初始化完成")
-        return True
-    except Exception as e:
-        print(f"✗ 硬件初始化失敗: {e}")
-        return False
-
-def cleanup_hardware():
-    """清理硬件"""
-    global disp
-    try:
-        if disp:
-            disp.cleanup()
-        led_cleanup()
-        fan_cleanup()
-        print("✓ 硬件清理完成")
-    except Exception as e:
-        print(f"✗ 硬件清理錯誤: {e}")
+from src.graph import app  # 引入編譯好的 LangGraph app
+from src import setup_gemini_api, initialize_hardware, cleanup_hardware  # 從包初始化導入
 
 def run_conversation_loop():
     """運行對話循環"""
@@ -98,7 +42,8 @@ def run_conversation_loop():
             break
         except Exception as e:
             print(f"錯誤: {e}")
-            time.sleep(2)  # 錯誤後稍等再繼續
+            print("由於錯誤，程式停止")
+            break
 
 def main():
     """主函式"""

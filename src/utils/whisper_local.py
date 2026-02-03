@@ -39,8 +39,8 @@ def transcribe_latest_wav(
         # "--no-timestamps",          # 如果不要時間戳
     ]
 
-    print(f"開始使用 whisper.cpp 轉錄：{input_wav}")
-    print(f"模型：{model_name}，語言：{language}，執行緒：{threads}")
+    # print(f"開始使用 whisper.cpp 轉錄：{input_wav}")
+    # print(f"模型：{model_name}，語言：{language}，執行緒：{threads}")
 
     try:
         result = subprocess.run(

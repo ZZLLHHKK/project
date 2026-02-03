@@ -49,6 +49,7 @@ project/                                   # 專案根目錄（建議 git repo�
 │   └── test_graph.py                      # 單獨測試 LangGraph 流程
 │
 ├── src/                                   # 所有 Python 主要程式碼
+│   ├── __init__.py                        # 主程式初始化
 │   ├── main.py                            # 程式進入點（啟動 graph、持續監聽錄音 loop）
 │   ├── graph.py                           # LangGraph 主流程（nodes + edges + conditional）
 │   ├── nodes/                             # 每個 LangGraph node 獨立檔案
@@ -100,7 +101,21 @@ project/                                   # 專案根目錄（建議 git repo�
 - 麥克風（USB 或內建）
 - GPIO 接的家電（燈、風扇、冷氣等）
 
-### 步驟
+### 推薦安裝方式（一鍵安裝）
+
+使用提供的安裝腳本進行完整設定：
+
+```bash
+git clone https://github.com/ZZLLHHKK/project.git
+cd 你的專案
+bash scripts/setup.sh
+```
+
+腳本會自動處理所有依賴安裝、whisper.cpp 下載編譯、Python 套件安裝等。詳見 [setup.sh](scripts/setup.sh)。
+
+### 手動安裝步驟（備用）
+
+如果需要手動安裝，請跟隨以下步驟：
 
 1. Clone 專案
 
@@ -109,22 +124,23 @@ project/                                   # 專案根目錄（建議 git repo�
    cd 你的專案
    ```
 
-2. 建立虛擬環境 (必要)
+2. 建立虛擬環境
 
    ```bash
    python3 -m venv .venv
-   source .venv/bin/activate # 啟用虛擬環境，看到(.venv)代表成功啟用
+   source .venv/bin/activate
    ```
 
 3. 安裝 Python 套件
 
-   請先看 [下載前置作業](description/INSTALL.md) 模組出現(前置作業)需特別注意
+   請先參考 [下載前置作業](description/INSTALL.md)
+
    ```bash
    pip install --upgrade pip
    pip install -r requirements.txt
    ```
 
-4. 安裝系統依賴（音訊、GPIO 等）
+4. 安裝系統依賴
 
    ```bash
    sudo apt update
@@ -133,11 +149,11 @@ project/                                   # 專案根目錄（建議 git repo�
 
 5. 編譯 whisper.cpp
 
-   詳細請看 [whisper.cpp使用筆記](description/whisper.md)
+   詳見 [whisper.cpp使用筆記](description/whisper.md)
 
-6. 設定環境變數（Gemini API key）
+6. 設定環境變數
 
-- 建立 `.env` 檔（不要推到 GitHub）
+   建立 `.env` 檔：
 
    ```bash
    GEMINI_API_KEY=你的金鑰
@@ -146,9 +162,10 @@ project/                                   # 專案根目錄（建議 git repo�
 7. 啟動程式
 
    ```bash
+   source .venv/bin/activate
    python -m src.main
    ```
 
 ## 其他
 
-詳情請閱讀`description`的`markdown file`
+詳情請閱讀 `description` 資料夾的 markdown 檔案
