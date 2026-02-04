@@ -1,4 +1,4 @@
-# src/utils/audio.py recording part
+# src/utils/audio.py recording part 用樹莓派錄音 (缺陷: 無法自動偵測靜音停止)
 import os
 import subprocess
 import time

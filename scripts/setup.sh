@@ -22,6 +22,11 @@ sudo apt install -y git python3-venv python3-pip build-essential cmake \
     libportaudio2 alsa-utils gpiozero graphviz graphviz-dev pkg-config \
     libsdl2-dev libsdl2-2.0-0
 
+# 下載SOX
+echo "安裝 SOX..."
+sudo apt update
+sudo apt install -y sox libsox-fmt-all
+
 # Step 2: 下載 whisper.cpp
 WHISPER_DIR="whisper.cpp"
 if [ ! -d "$WHISPER_DIR" ]; then

@@ -18,7 +18,8 @@ from google import genai
 
 import src.utils.config as config
 from src.nodes.langgraph_split_files.actions_schema import ActionDict
-from src.nodes.langgraph_split_files.parser_fastpath import read_text, format_history_for_prompt, apply_memory_rules
+from src.nodes.langgraph_split_files.parser_fastpath import apply_memory_rules
+from src.utils.file_io import read_text, format_history_for_prompt
 from src.nodes.langgraph_split_files.validator import validate_actions
 
 # The client automatically reads GEMINI_API_KEY from environment variables.

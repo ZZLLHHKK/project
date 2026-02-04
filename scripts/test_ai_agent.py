@@ -1,23 +1,48 @@
-from src.utils.audio import record_with_arecord, stt_pipeline
+# 測試僅輸入文字的回應 (省略錄音步驟)
+from dotenv import load_dotenv
+import os
 from src.utils.file_io import read_text, write_text_file
 from src.utils.config import *
-# DEVICE_PORT, INPUT_FILE, OUTPUT_FILE, ACTIONS_FILE, MEMORY_FILE, HISTORY_FILE, REPLY_FILE
+# ACTIONS_FILE, MEMORY_FILE, HISTORY_FILE, REPLY_FILE
 
 # langggraph_split_files
 from src.nodes.langgraph_split_files.actions_schema import ActionDict
 from src.nodes.langgraph_split_files.parser_fastpath import parse_fastpath, apply_memory_rules
 from src.nodes.langgraph_split_files.parser_gemini import parse_with_gemini
 from src.nodes.langgraph_split_files.validator import validate_actions
-from src.nodes.langgraph_split_files.hardware_led import setup as led_setup, set_led, cleanup as led_cleanup
-from src.nodes.langgraph_split_files.hardware_fan import setup as fan_setup, set_fan, cleanup as fan_cleanup
-from src.nodes.langgraph_split_files.hardware_7seg import SevenSegDisplay
-import src  # 導入包以訪問 disp
 
 # langgraph modules
 from typing import TypedDict, Annotated, List, Dict, Any, Optional # Imports all the data types we need
 from langgraph.graph.message import add_messages
 from langgraph.graph import StateGraph, START, END
 import time
+
+# 載入環境變數
+load_dotenv()
+
+# 檢查並設定 Gemini API Key
+def setup_gemini_api():
+    """檢查並設定 Gemini API Key"""
+    # 檢查可能的 API key 變數名稱
+    api_key = os.environ.get('GEMINI_API_KEY') or os.environ.get('GOOGLE_API_KEY')
+    if not api_key:
+        print("警告: 沒有找到 GEMINI_API_KEY 或 GOOGLE_API_KEY 環境變數")
+        print("請在 .env 文件中設置：")
+        print("GEMINI_API_KEY=你的API金鑰")
+        print("或者 GOOGLE_API_KEY=你的API金鑰")
+        print("或者直接在程式中設定：")
+        api_key = input("請輸入你的 Gemini API Key (或按 Enter 跳過): ").strip()
+        if api_key:
+            os.environ['GEMINI_API_KEY'] = api_key
+            print("API Key 已設定")
+        else:
+            print("將只使用快速解析器，跳過 Gemini LLM")
+            return False
+    else:
+        # 確保 GEMINI_API_KEY 被設置（以防使用的是 GOOGLE_API_KEY）
+        os.environ['GEMINI_API_KEY'] = api_key
+        print("✓ API Key 已從環境變數載入")
+    return True
 
 class AgentState(TypedDict):
     input_text: str                    # 使用者輸入的文字
@@ -30,25 +55,12 @@ class AgentState(TypedDict):
     needs_clarification: bool = False  # 是否需要澄清
     clarification_message: Optional[str] = None  # 澄清訊息
 
-def record(state: AgentState) -> AgentState:
-    """樹莓派的錄音節點"""
-    wav_path = record_with_arecord(duration=6, device=DEVICE_PORT)
-    if not wav_path:
-        print("record node error")
-    state["status"] = "record"
+def input_command(state: AgentState) -> AgentState:
+    """手動輸入文字指令"""
+    text = input("請輸入指令文字: ").strip()
+    state["input_text"] = text
+    state["status"] = "analyzed"
     state["last_input_time"] = time.time()  # 更新時間戳
-    return state
-
-def analyze(state: AgentState) -> AgentState:
-    """whisper.cpp解析.wav檔案並寫入input.txt"""
-    text = stt_pipeline(duration=6, device=DEVICE_PORT)
-    if text:
-        write_text_file(INPUT_FILE, text)  # 寫檔
-        state["input_text"] = text
-        state["status"] = "analyzed"
-        state["last_input_time"] = time.time()  # 更新時間戳
-    else:
-        state["status"] = "analyze_error"
     return state
 
 def parse_actions(state: AgentState) -> AgentState:
@@ -57,12 +69,15 @@ def parse_actions(state: AgentState) -> AgentState:
 
     # 先試 fastpath（記憶 + 快速解析）
     actions = parse_fastpath(text)
+    print(f"Fastpath 結果: {actions}")  # 調試輸出
     if actions is not None:
         state["raw_actions"] = actions
         state["status"] = "fastpath_parsed"
     else:
         # 再用 gemini
+        print("使用 Gemini 解析...")  # 調試輸出
         actions = parse_with_gemini(text)
+        print(f"Gemini 解析後動作: {actions}")  # 調試輸出
         state["raw_actions"] = actions
         state["status"] = "gemini_parsed" if actions else "parse_failed"
 
@@ -71,7 +86,9 @@ def parse_actions(state: AgentState) -> AgentState:
 def validate_actions_node(state: AgentState) -> AgentState:
     """驗證動作合法性"""
     
-    validated = validate_actions(state["raw_actions"]) #可能為空列表，需返回錄音階段
+    validated = validate_actions(state["raw_actions"])
+    print(f"驗證前動作: {state['raw_actions']}")  # 調試輸出
+    print(f"驗證後動作: {validated}")  # 調試輸出
     state["validated_actions"] = validated
     
     if not validated:  # 如果沒有有效動作
@@ -84,89 +101,19 @@ def validate_actions_node(state: AgentState) -> AgentState:
     
     return state
 
-def direct_action(state: AgentState) -> AgentState:
-    """根據動作類型呼叫對應硬件函式"""
+def simulate_execute(state: AgentState) -> AgentState:
+    """模擬執行硬件動作（不實際操作硬件）"""
     
-    for action in state["validated_actions"]:
-        action_type = action["type"]
-        
-        if action_type == "SET_TEMP":
-            # 設定溫度 - 呼叫7段顯示器
-            temp = action["value"]
-            disp.set_temp(temp)
-            print(f"設定溫度為: {temp}°C")
-            
-        elif action_type == "FAN":
-            # 開關風扇
-            state = action["state"]  # "on" 或 "off"
-            set_fan(state)
-            print(f"風扇: {state}")
-            
-            # 如果有持續時間，處理定時關閉
-            duration = action.get("duration")
-            if duration and state == "on":
-                # 可以啟動定時器線程來自動關閉
-                pass
-                
-        elif action_type == "LED":
-            # 開關LED燈
-            location = action["location"]  # "KITCHEN", "LIVING", "GUEST"
-            state = action["state"]       # "on" 或 "off"
-            set_led(location, state)
-            print(f"{location}燈: {state}")
-            
-            # 如果有持續時間，處理定時關閉
-            duration = action.get("duration")
-            if duration and state == "on":
-                # 可以啟動定時器線程來自動關閉
-                pass
-    
-    state["status"] = "executed"
-    return state
-
-def init_hardware_node(state: AgentState) -> AgentState:
-    """初始化所有硬件"""
-    # 7段顯示器
-    global disp
-    disp = SevenSegDisplay()
-    disp.setup()
-    disp.start()
-    
-    # 風扇
-    fan_setup()
-    
-    # LED
-    led_setup()
-    
-    state["status"] = "hardware_initialized"
-    return state
-
-def execute_hardware(state: AgentState) -> AgentState:
-    """執行硬件動作"""
-    # 硬件已在 main.py 中初始化，這裡只執行動作
-    
-    # 執行動作
+    print("模擬執行動作:")
     for action in state["validated_actions"]:
         if action["type"] == "SET_TEMP":
-            src.disp.set_temp(action["value"])
+            print(f"模擬設定溫度為: {action['value']}°C")
         elif action["type"] == "FAN":
-            set_fan(action["state"])
+            print(f"模擬風扇: {action['state']}")
         elif action["type"] == "LED":
-            set_led(action["location"], action["state"])
+            print(f"模擬{action['location']}燈: {action['state']}")
     
     state["status"] = "executed"
-    return state
-
-def cleanup_hardware_node(state: AgentState) -> AgentState:
-    """清理所有硬件"""
-    try:
-        disp.cleanup()
-        fan_cleanup()
-        led_cleanup()
-    except Exception as e:
-        print(f"清理硬件時發生錯誤: {e}")
-    
-    state["status"] = "cleaned"
     return state
 
 def update_history(state: AgentState) -> AgentState:
@@ -231,38 +178,113 @@ def clarify_or_continue(state: AgentState) -> AgentState:
 graph = StateGraph(AgentState)
 
 # 加入所有節點
-graph.add_node("record", record)
-graph.add_node("analyze", analyze)
+graph.add_node("input_command", input_command)
 graph.add_node("parse_actions", parse_actions)
 graph.add_node("validate_actions", validate_actions_node)
-graph.add_node("execute_hardware", execute_hardware)
+graph.add_node("simulate_execute", simulate_execute)
 graph.add_node("update_history", update_history)
 graph.add_node("check_end", check_end)
 graph.add_node("clarify_or_continue", clarify_or_continue)
 
 # 設定起始點
-graph.set_entry_point("record")
+graph.set_entry_point("input_command")
 
 # 設定邊緣
-graph.add_edge("record", "analyze")
-graph.add_edge("analyze", "parse_actions")
+graph.add_edge("input_command", "parse_actions")
 graph.add_edge("parse_actions", "validate_actions")
-graph.add_edge("validate_actions", "execute_hardware")
-graph.add_edge("execute_hardware", "update_history")
+graph.add_edge("validate_actions", "simulate_execute")
+graph.add_edge("simulate_execute", "update_history")
 graph.add_edge("update_history", "check_end")
 
 # 條件邊緣：根據 check_end 的結果
 graph.add_conditional_edges(
     "check_end",
-    should_end,  # 使用新的條件函式
+    should_end,  # 使用條件函式
     {
         "end": END,
         "continue": "clarify_or_continue"
     }
 )
 
-# 從 clarify_or_continue 回到 record，形成循環
-graph.add_edge("clarify_or_continue", "record")
+# 從 clarify_or_continue 回到 input_command，形成循環（測試中可選）
+graph.add_edge("clarify_or_continue", "input_command")
 
 # 編譯圖
 app = graph.compile()
+
+if __name__ == "__main__":
+    print("測試 AI 代理回應流程（手動輸入指令，模擬執行）")
+    
+    # 檢查 API
+    gemini_available = setup_gemini_api()
+    '''
+    if gemini_available:
+        print("✓ Gemini API 可用")
+    else:
+        print("⚠ 只使用快速解析器")
+    '''
+
+    # 測試一些預設指令（可選）
+    test_inputs = [
+        "開燈",
+        "關風扇",
+        "設定溫度25度",
+        "全部關閉",
+        "廚房燈開",
+        "冷一點"
+    ]
+    
+    print("\n選擇測試模式：")
+    print("1. 手動輸入")
+    print("2. 自動測試預設指令")
+    choice = input("請選擇 (1 或 2): ").strip()
+    
+    if choice == "2":
+        for test_input in test_inputs:
+            print(f"\n--- 測試輸入: {test_input} ---")
+            initial_state = {
+                "input_text": test_input,
+                "raw_actions": [],
+                "validated_actions": [],
+                "status": "analyzed",
+                "memory_rules": {},
+                "history": [],
+                "last_input_time": time.time(),
+                "needs_clarification": False,
+                "clarification_message": None
+            }
+            
+            result = app.invoke(initial_state)
+            print(f"最終狀態: {result.get('status', 'unknown')}")
+            print(f"驗證後動作: {result.get('validated_actions', [])}")
+    else:
+        # 手動輸入循環
+        print("\n進入手動輸入模式。輸入 '結束'、'end' 或 'exit' 退出。")
+        while True:
+            try:
+
+                # 設置初始狀態
+                initial_state = {
+                    "input_text": "",
+                    "raw_actions": [],
+                    "validated_actions": [],
+                    "status": "analyzed",  # 跳過 input_command，直接從 analyzed 開始
+                    "memory_rules": {},
+                    "history": [],
+                    "last_input_time": time.time(),
+                    "needs_clarification": False,
+                    "clarification_message": None
+                }
+                
+                # 運行 LangGraph 流程
+                result = app.invoke(initial_state)
+                
+                print(f"最終狀態: {result.get('status', 'unknown')}")
+                print(f"驗證後動作: {result.get('validated_actions', [])}")
+                
+            except KeyboardInterrupt:
+                print("\n用戶中斷，退出測試。")
+                break
+            except Exception as e:
+                print(f"測試錯誤: {e}")
+                continue

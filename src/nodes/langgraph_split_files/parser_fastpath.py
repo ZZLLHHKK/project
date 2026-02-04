@@ -9,82 +9,13 @@ It also preserves the "memory" capability from temp_7seg_fuzzy_memory.py:
 """
 from __future__ import annotations
 
-import os
 import re
-import json
-import time
 import math
 from typing import Optional, Tuple, List, Dict, Any
 
 import src.utils.config as config
 from src.nodes.langgraph_split_files.actions_schema import ActionDict
-
-# -------------------------
-# File helpers
-# -------------------------
-def ensure_file(path: str) -> None:
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    if not os.path.exists(path):
-        with open(path, "w", encoding="utf-8") as f:
-            f.write("")
-
-def read_text(path: str) -> str:
-    if not os.path.exists(path):
-        return ""
-    with open(path, "r", encoding="utf-8", errors="ignore") as f:
-        return f.read().strip()
-
-def append_line_unique(path: str, line: str) -> None:
-    ensure_file(path)
-    line = line.strip()
-    if not line:
-        return
-    existing = read_text(path)
-    lines = [x.strip() for x in existing.splitlines() if x.strip()]
-    if line in lines:
-        return
-    with open(path, "a", encoding="utf-8") as f:
-        if lines:
-            f.write("\n")
-        f.write(line)
-
-def load_history() -> List[Dict[str, Any]]:
-    if not os.path.exists(config.HISTORY_FILE):
-        return []
-    out: List[Dict[str, Any]] = []
-    with open(config.HISTORY_FILE, "r", encoding="utf-8", errors="ignore") as f:
-        for ln in f:
-            ln = ln.strip()
-            if not ln:
-                continue
-            try:
-                out.append(json.loads(ln))
-            except Exception:
-                continue
-    return out
-
-def save_history(records: List[Dict[str, Any]]) -> None:
-    records = records[-config.HISTORY_KEEP:]
-    ensure_file(config.HISTORY_FILE)
-    with open(config.HISTORY_FILE, "w", encoding="utf-8") as f:
-        for r in records:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
-
-def push_history(user_text: str, result: Any) -> None:
-    records = load_history()
-    records.append({"ts": int(time.time()), "user": user_text, "result": result})
-    save_history(records)
-
-def format_history_for_prompt() -> str:
-    records = load_history()[-config.HISTORY_KEEP:]
-    if not records:
-        return "(no recent history)"
-    lines = []
-    for r in records:
-        u = (r.get("user") or "").strip()
-        res = r.get("result")
-        lines.append(f"- user: {u}\n  parsed: {json.dumps(res, ensure_ascii=False)}")
-    return "\n".join(lines)
+from src.utils.file_io import read_text, load_history, save_history, push_history, format_history_for_prompt, load_rules, append_line_unique
 
 # -------------------------
 # Math helpers
@@ -103,8 +34,6 @@ LEARN_PATTERNS = [
     re.compile(r"^\s*(?:以後|之後)\s*我說\s*(.+?)\s*(?:就|代表)\s*(.+?)\s*$"),
     re.compile(r"^\s*如果我說\s*(.+?)\s*[，,]?\s*(?:請|就)\s*(.+?)\s*$"),
 ]
-
-RULE_LINE_RE = re.compile(r"^RULE:\s*When user says '(.+?)', it means '(.+?)'\.\s*$")
 
 def try_learn_rule(user_text: str) -> Optional[Dict[str, Any]]:
     """
@@ -127,23 +56,6 @@ def try_learn_rule(user_text: str) -> Optional[Dict[str, Any]]:
         push_history(user_text, out)
         return out
     return None
-
-def load_rules() -> List[Tuple[str, str]]:
-    """
-    Parse memory.txt rule lines.
-    """
-    ensure_file(config.MEMORY_FILE)
-    txt = read_text(config.MEMORY_FILE)
-    rules: List[Tuple[str, str]] = []
-    for ln in txt.splitlines():
-        ln = ln.strip()
-        if not ln:
-            continue
-        m = RULE_LINE_RE.match(ln)
-        if not m:
-            continue
-        rules.append((m.group(1), m.group(2)))
-    return rules
 
 def apply_memory_rules(user_text: str) -> str:
     """
