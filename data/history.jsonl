@@ -1,5 +1,0 @@
-{"ts": 1770187336, "user": "turn off living room light", "result": {"actions": [{"type": "LED", "location": "LIVING", "state": "off"}], "status": "executed"}}
-{"ts": 1770187344, "user": "turn on ac", "result": {"actions": [{"type": "SET_TEMP", "value": 24}], "status": "executed"}}
-{"ts": 1770187355, "user": "too hot", "result": {"actions": [{"type": "SET_TEMP", "value": 23}], "status": "executed"}}
-{"ts": 1770187370, "user": "ac lower 2 temp", "result": {"fastpath": true, "actions": [{"type": "SET_TEMP", "value": 18}]}}
-{"ts": 1770187370, "user": "ac lower 2 temp", "result": {"actions": [{"type": "SET_TEMP", "value": 18}], "status": "executed"}}

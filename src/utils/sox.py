@@ -17,7 +17,7 @@ RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
 def record_with_sox(
     output_path: Path = RECORDINGS_DIR / "latest.wav",
     silence_duration: float = 1.5,      # 靜音持續多久就停止（秒）
-    silence_threshold: float = 1.0,     # 靜音門檻（音量百分比，1% = 很安靜）
+    silence_threshold: float = 20.0,     # 靜音門檻（音量百分比，1% = 很安靜）
     sample_rate: int = 16000,
     channels: int = 1,
     device: str = DEVICE_PORT           # 從 config 來的麥克風裝置
