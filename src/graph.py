@@ -29,19 +29,21 @@ class AgentState(TypedDict):
     last_input_time: float             # 最後輸入時間戳
     needs_clarification: bool = False  # 是否需要澄清
     clarification_message: Optional[str] = None  # 澄清訊息
-
+    
+'''
 def record(state: AgentState) -> AgentState:
     """樹莓派的錄音節點"""
-    wav_path = record_with_arecord(duration=6, device=DEVICE_PORT)
+    wav_path = record_with_arecord(duration=4, device=DEVICE_PORT)
     if not wav_path:
         print("record node error")
     state["status"] = "record"
     state["last_input_time"] = time.time()  # 更新時間戳
     return state
+'''
 
-def analyze(state: AgentState) -> AgentState:
+def record_analyze(state: AgentState) -> AgentState:
     """whisper.cpp解析.wav檔案並寫入input.txt"""
-    text = stt_pipeline(duration=6, device=DEVICE_PORT)
+    text = stt_pipeline(duration=3, device=DEVICE_PORT)
     if text:
         write_text_file(INPUT_FILE, text)  # 寫檔
         state["input_text"] = text
@@ -189,7 +191,7 @@ def check_end(state: AgentState) -> AgentState:
     # 檢查超時（例如超過5分鐘無輸入）
     current_time = time.time()
     last_input = state.get("last_input_time", current_time)
-    if current_time - last_input > 15:  # 15秒鐘
+    if current_time - last_input > 5:  # 5秒鐘
         state["status"] = "timeout_end"
         return state
     
@@ -231,8 +233,7 @@ def clarify_or_continue(state: AgentState) -> AgentState:
 graph = StateGraph(AgentState)
 
 # 加入所有節點
-graph.add_node("record", record)
-graph.add_node("analyze", analyze)
+graph.add_node("record_analyze", record_analyze)
 graph.add_node("parse_actions", parse_actions)
 graph.add_node("validate_actions", validate_actions_node)
 graph.add_node("execute_hardware", execute_hardware)
@@ -241,11 +242,10 @@ graph.add_node("check_end", check_end)
 graph.add_node("clarify_or_continue", clarify_or_continue)
 
 # 設定起始點
-graph.set_entry_point("record")
+graph.set_entry_point("record_analyze")
 
 # 設定邊緣
-graph.add_edge("record", "analyze")
-graph.add_edge("analyze", "parse_actions")
+graph.add_edge("record_analyze", "parse_actions")
 graph.add_edge("parse_actions", "validate_actions")
 graph.add_edge("validate_actions", "execute_hardware")
 graph.add_edge("execute_hardware", "update_history")
@@ -262,7 +262,7 @@ graph.add_conditional_edges(
 )
 
 # 從 clarify_or_continue 回到 record，形成循環
-graph.add_edge("clarify_or_continue", "record")
+graph.add_edge("clarify_or_continue", "record_analyze")
 
 # 編譯圖
 app = graph.compile()

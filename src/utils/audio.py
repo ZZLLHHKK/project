@@ -52,7 +52,7 @@ from src.utils.whisper_local import transcribe_latest_wav
 from src.utils.file_io import write_text_file  
 
 def stt_pipeline(
-    duration: int = 8,
+    duration: int = 4,
     device: str = DEVICE_PORT,
     model_name: str = MODELS_DIR,
     language: str = "auto"

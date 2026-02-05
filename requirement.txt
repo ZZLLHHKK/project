@@ -4,18 +4,14 @@ langchain-google-genai
 google-generativeai
 python-dotenv
 typing-extensions
-
 sounddevice
 scipy
-
 python-Levenshtein
-
-jupyter 
-ipython 
-langgraph-checkpoint 
-langgraph-checkpoint-sqlite 
+jupyter
+ipython
+langgraph-checkpoint
+langgraph-checkpoint-sqlite
 pygraphviz
 pillow
-
-packaging==25.0.0 --force-reinstall
-ipykernel -U
+packaging==25.0.0
+ipykernel
