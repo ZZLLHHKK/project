@@ -44,7 +44,11 @@ def main():
             "history": [],
             "last_input_time": time.time(),
             "needs_clarification": False,
-            "clarification_message": None
+            "clarification_message": None,
+            "llm_reply": None,
+            "parse_source": None,
+            "failure_count": 0,
+            "error_message": None
         }
         
         print("\n等待語音輸入...")
@@ -53,6 +57,13 @@ def main():
         result = app.invoke(initial_state)
         
         print(f"處理狀態: {result.get('status', 'unknown')}")
+
+        if result.get("llm_reply"):
+            print("Gemini 回覆：")
+            print(result.get("llm_reply"))
+
+        if result.get("error_message"):
+            print(f"錯誤訊息: {result.get('error_message')}")
         
         if result.get("status") in ["end", "error"]:
             print("對話結束")

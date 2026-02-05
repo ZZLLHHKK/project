@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple, Union
 
 from google import genai
 
@@ -51,14 +51,18 @@ def _get_gemini_client():
     except Exception as e:
         raise ValueError(f"初始化 Gemini client 失敗: {e}") from e
 
-def parse_with_gemini(user_text: str, current_temp: Optional[int] = None) -> List[ActionDict]:
+def parse_with_gemini(
+    user_text: str,
+    current_temp: Optional[int] = None,
+    return_reply: bool = False
+) -> Union[List[ActionDict], Tuple[List[ActionDict], Optional[str]]]:
     """
     Returns a validated list of ActionDict.
 
     current_temp is used to interpret relative temperature commands ("hot/cold a bit").
     """
     if not user_text or not user_text.strip():
-        return []
+        return ([], None) if return_reply else []
 
     # Apply memory rewrites first (so user-defined shortcuts affect the prompt too)
     rewritten = apply_memory_rules(user_text)
@@ -129,23 +133,29 @@ Now output JSON only.
 """.strip()
 
     # 延遲初始化 client
-    client = _get_gemini_client()
-    
-    response = client.models.generate_content(
-        model=config.GEMINI_MODEL,
-        contents=prompt
-    )
-    raw = _strip_code_fences((response.text or ""))
+    try:
+        client = _get_gemini_client()
+        response = client.models.generate_content(
+            model=config.GEMINI_MODEL,
+            contents=prompt
+        )
+        reply_text = response.text or ""
+    except Exception as e:
+        if return_reply:
+            return [], f"[gemini_error] {e}"
+        return []
+
+    raw = _strip_code_fences(reply_text)
 
     # Parse JSON
     try:
         data = json.loads(raw)
-    except Exception as e:
+    except Exception:
         # Fail-closed
-        return []
+        return ([], raw) if return_reply else []
 
     if not isinstance(data, list):
-        return []
+        return ([], raw) if return_reply else []
 
     actions: List[ActionDict] = []
     for item in data:
@@ -153,4 +163,7 @@ Now output JSON only.
             actions.append(dict(item))
 
     # Validate & normalize
-    return validate_actions(actions)
+    validated = validate_actions(actions)
+    if return_reply:
+        return validated, raw
+    return validated

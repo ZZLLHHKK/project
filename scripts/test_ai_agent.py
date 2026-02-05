@@ -20,6 +20,22 @@ import time
 # 載入環境變數
 load_dotenv()
 
+# 簡單的設備狀態（跨回合保留）
+DEVICE_STATE = {
+    "lights": {
+        "廚房": "off",
+        "客廳": "off",
+        "客房": "off",
+    },
+    "fan": "off",
+    "ac_temp": 26,
+}
+
+def normalize_location(location: Optional[str]) -> str:
+    if not location:
+        return ""
+    return location.strip()
+
 # 檢查並設定 Gemini API Key
 def setup_gemini_api():
     """檢查並設定 Gemini API Key"""
@@ -103,15 +119,24 @@ def validate_actions_node(state: AgentState) -> AgentState:
 
 def simulate_execute(state: AgentState) -> AgentState:
     """模擬執行硬件動作（不實際操作硬件）"""
-    
+
     print("模擬執行動作:")
     for action in state["validated_actions"]:
         if action["type"] == "SET_TEMP":
-            print(f"模擬設定溫度為: {action['value']}°C")
+            DEVICE_STATE["ac_temp"] = action["value"]
+            print(f"OK: 冷氣溫度 {action['value']}°C")
         elif action["type"] == "FAN":
-            print(f"模擬風扇: {action['state']}")
+            DEVICE_STATE["fan"] = action["state"]
+            print(f"OK: 電扇 {action['state']}")
         elif action["type"] == "LED":
-            print(f"模擬{action['location']}燈: {action['state']}")
+            location = normalize_location(action.get("location"))
+            if location in DEVICE_STATE["lights"]:
+                DEVICE_STATE["lights"][location] = action["state"]
+                print(f"OK: {location}燈 {action['state']}")
+            else:
+                print(f"OK: 燈 {action['state']}")
+        else:
+            print(f"OK: 未知動作 {action}")
     
     state["status"] = "executed"
     return state
@@ -142,7 +167,7 @@ def check_end(state: AgentState) -> AgentState:
     
     # 檢查用戶是否說了結束詞
     text = state.get("input_text", "").lower()
-    if any(word in text for word in ["結束", "停止", "再見", "end", "stop", "bye"]):
+    if any(word in text for word in ["結束", "停止", "再見", "end", "stop", "bye", "exit"]):
         state["status"] = "user_end"
         return state
     

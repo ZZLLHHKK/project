@@ -22,7 +22,10 @@ def setup_gemini_api():
         print("GEMINI_API_KEY=你的API金鑰")
         print("或者 GOOGLE_API_KEY=你的API金鑰")
         print("或者直接在程式中設定：")
-        api_key = input("請輸入你的 Gemini API Key (或按 Enter 跳過): ").strip()
+        if sys.stdin.isatty():
+            api_key = input("請輸入你的 Gemini API Key (或按 Enter 跳過): ").strip()
+        else:
+            api_key = ""
         if api_key:
             os.environ['GEMINI_API_KEY'] = api_key
             print("API Key 已設定")
