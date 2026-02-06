@@ -47,7 +47,7 @@ def record(state: AgentState) -> AgentState:
 
 def record_analyze(state: AgentState) -> AgentState:
     """whisper.cpp解析.wav檔案並寫入input.txt"""
-    text = stt_pipeline(duration=3, device=DEVICE_PORT)
+    text = stt_pipeline(duration=4, device=DEVICE_PORT)
     if text and text.strip():
         cleaned_text = text.strip()
         write_text_file(INPUT_FILE, cleaned_text)  # 寫檔

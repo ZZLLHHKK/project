@@ -37,12 +37,13 @@ HISTORY_KEEP = 5
 SRC_DIR = PROJECT_ROOT / "src"
 
 # whisper model settings (faster-whisper)
-FASTER_WHISPER_MODEL = "base"  # "tiny", "base", "small", "medium", "large-v3"
+# Use Hugging Face repo names for CTranslate2 models
+FASTER_WHISPER_MODEL = "base" 
 MODELS_DIR = FASTER_WHISPER_MODEL
 
 # 錄音配置 
 DEVICE_PORT = "plughw:3,0"           # 樹莓派錄音接口 (在終端機 arecord -l)
-RECORDING_DURATION = 8                # 錄音秒數
+RECORDING_DURATION = 5               # 錄音秒數
 LANGUAGE = "auto"                    # whisper 語言代碼 (中英適用)
 GEMINI_MODEL = "gemini-flash-latest"
 

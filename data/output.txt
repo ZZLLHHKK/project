@@ -1,0 +1,7 @@
+[
+  {
+    "type": "LED",
+    "location": "KITCHEN",
+    "state": "on"
+  }
+]

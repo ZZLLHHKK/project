@@ -71,7 +71,7 @@ def stt_pipeline(
     silence_duration: float = 1.5,
     silence_threshold: float = 1.0,
     device: str = DEVICE_PORT,
-    model_name: str = MODELS_DIR,
+    model_name: str | None = None,
     language: str = "auto"
 ) -> str:
     """
@@ -94,7 +94,7 @@ def stt_pipeline(
     # 步驟2：轉錄
     try:
         text = transcribe_latest_wav(
-            model_name=model_name,
+            model_name=model_name or MODELS_DIR,
             language=language,
             input_wav=wav_path
         )

@@ -157,6 +157,25 @@ def parse_fastpath(user_text: str) -> Optional[List[ActionDict]]:
         config.LOC_GUEST:   ("客房", "guest"),
     }
 
+    # 4a) Location mentioned without explicit "燈" (assume light)
+    if any(k in t for keys in loc_map.values() for k in keys):
+        if _contains_any(t, KW_ON) and not _contains_any(t, KW_OFF):
+            actions_loc: List[ActionDict] = []
+            for loc, keys in loc_map.items():
+                if any(k in t for k in keys):
+                    actions_loc.append({"type": "LED", "location": loc, "state": "on"})
+            if actions_loc:
+                push_history(user_text, {"fastpath": True, "actions": actions_loc})
+                return actions_loc
+        if _contains_any(t, KW_OFF) and not _contains_any(t, KW_ON):
+            actions_loc = []
+            for loc, keys in loc_map.items():
+                if any(k in t for k in keys):
+                    actions_loc.append({"type": "LED", "location": loc, "state": "off"})
+            if actions_loc:
+                push_history(user_text, {"fastpath": True, "actions": actions_loc})
+                return actions_loc
+
     found_any = False
     actions_out: List[ActionDict] = []
 
@@ -174,5 +193,24 @@ def parse_fastpath(user_text: str) -> Optional[List[ActionDict]]:
     if found_any and actions_out:
         push_history(user_text, {"fastpath": True, "actions": actions_out})
         return actions_out
+
+    # 4b) Light mentioned without location -> apply to all lights
+    if ("燈" in t or "light" in t or "lamp" in t):
+        if _contains_any(t, KW_ON) and not _contains_any(t, KW_OFF):
+            actions_all: List[ActionDict] = [
+                {"type": "LED", "location": config.LOC_KITCHEN, "state": "on"},
+                {"type": "LED", "location": config.LOC_LIVING,  "state": "on"},
+                {"type": "LED", "location": config.LOC_GUEST,   "state": "on"},
+            ]
+            push_history(user_text, {"fastpath": True, "actions": actions_all})
+            return actions_all
+        if _contains_any(t, KW_OFF) and not _contains_any(t, KW_ON):
+            actions_all = [
+                {"type": "LED", "location": config.LOC_KITCHEN, "state": "off"},
+                {"type": "LED", "location": config.LOC_LIVING,  "state": "off"},
+                {"type": "LED", "location": config.LOC_GUEST,   "state": "off"},
+            ]
+            push_history(user_text, {"fastpath": True, "actions": actions_all})
+            return actions_all
 
     return None
