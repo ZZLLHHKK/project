@@ -77,7 +77,7 @@ def stt_pipeline(
     """
     完整語音轉文字流程：
     1. 錄音 → latest.wav
-    2. whisper.cpp 轉錄
+    2. faster-whisper 轉錄
     3. 寫入 input.txt(覆蓋)
     返回辨識文字
     """

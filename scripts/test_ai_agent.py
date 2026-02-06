@@ -1,6 +1,7 @@
 # 測試僅輸入文字的回應 (省略錄音步驟)
 from dotenv import load_dotenv
 import os
+import threading
 from src.utils.file_io import read_text, write_text_file
 from src.utils.config import *
 # ACTIONS_FILE, MEMORY_FILE, HISTORY_FILE, REPLY_FILE
@@ -17,24 +18,120 @@ from langgraph.graph.message import add_messages
 from langgraph.graph import StateGraph, START, END
 import time
 
+try:
+    import RPi.GPIO as GPIO
+    GPIO_AVAILABLE = True
+except Exception as gpio_error:
+    GPIO_AVAILABLE = False
+    GPIO_IMPORT_ERROR = gpio_error
+
 # 載入環境變數
 load_dotenv()
 
 # 簡單的設備狀態（跨回合保留）
 DEVICE_STATE = {
     "lights": {
-        "廚房": "off",
-        "客廳": "off",
-        "客房": "off",
+        LOC_KITCHEN: "off",
+        LOC_LIVING: "off",
+        LOC_GUEST: "off",
     },
     "fan": "off",
     "ac_temp": 26,
 }
 
+LOCATION_ALIASES = {
+    "廚房": LOC_KITCHEN,
+    "客廳": LOC_LIVING,
+    "客房": LOC_GUEST,
+    "KITCHEN": LOC_KITCHEN,
+    "LIVING": LOC_LIVING,
+    "GUEST": LOC_GUEST,
+}
+
+LOCATION_LABELS = {
+    LOC_KITCHEN: "廚房",
+    LOC_LIVING: "客廳",
+    LOC_GUEST: "客房",
+}
+
+SEGMENT_ORDER = ["a", "b", "c", "d", "e", "f", "g"]
+DISPLAY_LOCK = threading.Lock()
+DISPLAY_STOP = threading.Event()
+DISPLAY_TEMP_INT = DEVICE_STATE["ac_temp"]
+
 def normalize_location(location: Optional[str]) -> str:
     if not location:
         return ""
-    return location.strip()
+    raw = location.strip()
+    upper = raw.upper()
+    return LOCATION_ALIASES.get(raw) or LOCATION_ALIASES.get(upper) or upper
+
+def gpio_setup():
+    if not GPIO_AVAILABLE:
+        raise RuntimeError(f"RPi.GPIO unavailable: {GPIO_IMPORT_ERROR}")
+
+    GPIO.setwarnings(False)
+    GPIO.setmode(GPIO.BCM)
+
+    GPIO.setup(RELAY_FAN, GPIO.OUT)
+    GPIO.output(RELAY_FAN, RELAY_OFF)
+
+    for pin in LED_LOCATION_TO_PIN.values():
+        GPIO.setup(pin, GPIO.OUT)
+        GPIO.output(pin, LED_OFF)
+
+    for pin in SEGMENTS.values():
+        GPIO.setup(pin, GPIO.OUT)
+        GPIO.output(pin, GPIO.HIGH)
+
+    for pin in DIGITS:
+        GPIO.setup(pin, GPIO.OUT)
+        GPIO.output(pin, DIGIT_OFF)
+
+def all_digits_off():
+    for d in DIGITS:
+        GPIO.output(d, DIGIT_OFF)
+
+def set_segments(char: str):
+    pattern = NUM_MAP.get(char, NUM_MAP[" "])
+    for i, seg in enumerate(SEGMENT_ORDER):
+        GPIO.output(SEGMENTS[seg], pattern[i])
+
+def show_2chars_once(value_str: str, per_digit_sec: float = 0.002):
+    for idx, d in enumerate(DIGITS):
+        all_digits_off()
+        set_segments(value_str[idx])
+        GPIO.output(d, DIGIT_ON)
+        time.sleep(per_digit_sec)
+
+def display_loop():
+    while not DISPLAY_STOP.is_set():
+        with DISPLAY_LOCK:
+            temp = DISPLAY_TEMP_INT
+        value = f"{temp:02d}"
+        show_2chars_once(value, per_digit_sec=0.002)
+
+def fan_on():
+    GPIO.output(RELAY_FAN, RELAY_ON)
+
+def fan_off():
+    GPIO.output(RELAY_FAN, RELAY_OFF)
+
+def light_set(location: str, state: str):
+    pin = LED_LOCATION_TO_PIN.get(location)
+    if not pin:
+        print(f"OK: 未知燈位 {location}")
+        return
+    GPIO.output(pin, LED_ON if state == "on" else LED_OFF)
+
+def gpio_cleanup():
+    try:
+        fan_off()
+        for pin in LED_LOCATION_TO_PIN.values():
+            GPIO.output(pin, LED_OFF)
+        all_digits_off()
+    finally:
+        GPIO.cleanup()
 
 # 檢查並設定 Gemini API Key
 def setup_gemini_api():
@@ -118,23 +215,35 @@ def validate_actions_node(state: AgentState) -> AgentState:
     return state
 
 def simulate_execute(state: AgentState) -> AgentState:
-    """模擬執行硬件動作（不實際操作硬件）"""
+    """執行 GPIO 動作"""
 
-    print("模擬執行動作:")
+    global DISPLAY_TEMP_INT
+
+    print("執行動作:")
     for action in state["validated_actions"]:
         if action["type"] == "SET_TEMP":
             DEVICE_STATE["ac_temp"] = action["value"]
+            with DISPLAY_LOCK:
+                DISPLAY_TEMP_INT = int(action["value"])
             print(f"OK: 冷氣溫度 {action['value']}°C")
         elif action["type"] == "FAN":
-            DEVICE_STATE["fan"] = action["state"]
-            print(f"OK: 電扇 {action['state']}")
+            state_value = str(action["state"]).lower()
+            DEVICE_STATE["fan"] = state_value
+            if state_value == "on":
+                fan_on()
+            else:
+                fan_off()
+            print(f"OK: 電扇 {state_value}")
         elif action["type"] == "LED":
             location = normalize_location(action.get("location"))
+            state_value = str(action["state"]).lower()
             if location in DEVICE_STATE["lights"]:
-                DEVICE_STATE["lights"][location] = action["state"]
-                print(f"OK: {location}燈 {action['state']}")
+                DEVICE_STATE["lights"][location] = state_value
+                light_set(location, state_value)
+                label = LOCATION_LABELS.get(location, location)
+                print(f"OK: {label}燈 {state_value}")
             else:
-                print(f"OK: 燈 {action['state']}")
+                print(f"OK: 燈 {state_value}")
         else:
             print(f"OK: 未知動作 {action}")
     
@@ -249,51 +358,35 @@ if __name__ == "__main__":
         print("⚠ 只使用快速解析器")
     '''
 
-    # 測試一些預設指令（可選）
-    test_inputs = [
-        "開燈",
-        "關風扇",
-        "設定溫度25度",
-        "全部關閉",
-        "廚房燈開",
-        "冷一點"
-    ]
-    
-    print("\n選擇測試模式：")
-    print("1. 手動輸入")
-    print("2. 自動測試預設指令")
-    choice = input("請選擇 (1 或 2): ").strip()
-    
-    if choice == "2":
-        for test_input in test_inputs:
-            print(f"\n--- 測試輸入: {test_input} ---")
-            initial_state = {
-                "input_text": test_input,
-                "raw_actions": [],
-                "validated_actions": [],
-                "status": "analyzed",
-                "memory_rules": {},
-                "history": [],
-                "last_input_time": time.time(),
-                "needs_clarification": False,
-                "clarification_message": None
-            }
-            
-            result = app.invoke(initial_state)
-            print(f"最終狀態: {result.get('status', 'unknown')}")
-            print(f"驗證後動作: {result.get('validated_actions', [])}")
-    else:
-        # 手動輸入循環
-        print("\n進入手動輸入模式。輸入 '結束'、'end' 或 'exit' 退出。")
-        while True:
-            try:
+    try:
+        # 初始化 GPIO
+        gpio_setup()
+        display_thread = threading.Thread(target=display_loop, daemon=True)
+        display_thread.start()
 
-                # 設置初始狀態
+        # 測試一些預設指令（可選）
+        test_inputs = [
+            "開燈",
+            "關風扇",
+            "設定溫度25度",
+            "全部關閉",
+            "廚房燈開",
+            "冷一點"
+        ]
+
+        print("\n選擇測試模式：")
+        print("1. 手動輸入")
+        print("2. 自動測試預設指令")
+        choice = input("請選擇 (1 或 2): ").strip()
+
+        if choice == "2":
+            for test_input in test_inputs:
+                print(f"\n--- 測試輸入: {test_input} ---")
                 initial_state = {
-                    "input_text": "",
+                    "input_text": test_input,
                     "raw_actions": [],
                     "validated_actions": [],
-                    "status": "analyzed",  # 跳過 input_command，直接從 analyzed 開始
+                    "status": "analyzed",
                     "memory_rules": {},
                     "history": [],
                     "last_input_time": time.time(),
@@ -301,15 +394,41 @@ if __name__ == "__main__":
                     "clarification_message": None
                 }
                 
-                # 運行 LangGraph 流程
                 result = app.invoke(initial_state)
-                
                 print(f"最終狀態: {result.get('status', 'unknown')}")
                 print(f"驗證後動作: {result.get('validated_actions', [])}")
-                
-            except KeyboardInterrupt:
-                print("\n用戶中斷，退出測試。")
-                break
-            except Exception as e:
-                print(f"測試錯誤: {e}")
-                continue
+        else:
+            # 手動輸入循環
+            print("\n進入手動輸入模式。輸入 '結束'、'end' 或 'exit' 退出。")
+            while True:
+                try:
+
+                    # 設置初始狀態
+                    initial_state = {
+                        "input_text": "",
+                        "raw_actions": [],
+                        "validated_actions": [],
+                        "status": "analyzed",  # 跳過 input_command，直接從 analyzed 開始
+                        "memory_rules": {},
+                        "history": [],
+                        "last_input_time": time.time(),
+                        "needs_clarification": False,
+                        "clarification_message": None
+                    }
+                    
+                    # 運行 LangGraph 流程
+                    result = app.invoke(initial_state)
+                    
+                    print(f"最終狀態: {result.get('status', 'unknown')}")
+                    print(f"驗證後動作: {result.get('validated_actions', [])}")
+                    
+                except KeyboardInterrupt:
+                    print("\n用戶中斷，退出測試。")
+                    break
+                except Exception as e:
+                    print(f"測試錯誤: {e}")
+                    continue
+    finally:
+        DISPLAY_STOP.set()
+        if GPIO_AVAILABLE:
+            gpio_cleanup()

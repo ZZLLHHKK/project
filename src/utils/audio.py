@@ -8,7 +8,7 @@ from src.utils.config import PROJECT_ROOT, DATA_DIR, RECORDINGS_DIR, INPUT_FILE,
 RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
 
 def record_with_arecord(
-    duration: int = 8,                  # 秒數
+    duration: int = 4,                  # 秒數
     device: str = DEVICE_PORT,         # 改成你的裝置，從 arecord -l 看
     sample_rate: int = 16000,
     channels: int = 1
@@ -60,7 +60,7 @@ def stt_pipeline(
     """
     完整語音轉文字流程：
     1. 錄音 → latest.wav
-    2. whisper.cpp 轉錄
+    2. faster-whisper 轉錄
     3. 寫入 input.txt(覆蓋)
     返回辨識文字
     """

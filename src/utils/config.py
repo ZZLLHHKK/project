@@ -36,11 +36,9 @@ HISTORY_KEEP = 5
 # src part (待補)
 SRC_DIR = PROJECT_ROOT / "src"
 
-# whisper.cpp model path 
-WHISPER_DIR = PROJECT_ROOT / "whisper.cpp"
-WHISPER_MAIN = WHISPER_DIR / "build" / "bin" / "whisper-cli"
-MODELS_DIR = WHISPER_DIR / "models" / "ggml-base.bin"
-# 模型也可選 ggml-base.bin, ggml-small.bin 依需求新增
+# whisper model settings (faster-whisper)
+FASTER_WHISPER_MODEL = "base"  # "tiny", "base", "small", "medium", "large-v3"
+MODELS_DIR = FASTER_WHISPER_MODEL
 
 # 錄音配置 
 DEVICE_PORT = "plughw:3,0"           # 樹莓派錄音接口 (在終端機 arecord -l)
