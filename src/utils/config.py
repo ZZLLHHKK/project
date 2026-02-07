@@ -86,11 +86,11 @@ DIGIT_OFF = 0  # GPIO.LOW
 # -------------------------
 # LED / Fan GPIO mapping (BCM) (from controller_gemini_gpio.py)
 # -------------------------
-RELAY_FAN = 26
+RELAY_FAN = 24
 
-LED_RED    = 5   # kitchen
-LED_GREEN  = 6   # living
-LED_YELLOW = 13  # guest
+LED_RED    = 22   # kitchen
+LED_GREEN  = 10   # living
+LED_YELLOW = 9  # guest
 
 # Relay trigger logic (most relay modules are LOW-level triggered)
 RELAY_ON  = 0  # GPIO.LOW
