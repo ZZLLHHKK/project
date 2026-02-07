@@ -11,6 +11,7 @@ from src.nodes.langgraph_split_files.validator import validate_actions
 from src.nodes.langgraph_split_files.hardware_led import setup as led_setup, set_led, cleanup as led_cleanup
 from src.nodes.langgraph_split_files.hardware_fan import setup as fan_setup, set_fan, cleanup as fan_cleanup
 from src.nodes.langgraph_split_files.hardware_7seg import SevenSegDisplay
+from src.nodes.langgraph_split_files.hardware_dht11 import DHT11Reader
 import src  # 導入包以訪問 disp
 
 # langgraph modules
@@ -34,6 +35,10 @@ class AgentState(TypedDict):
     failure_count: int = 0              # 連續失敗次數
     error_message: Optional[str] = None # 錯誤訊息
     
+    # 新增溫度相關字段
+    ambient_temp: Optional[int] = None  # 環境溫度
+    setpoint_temp: Optional[int] = 25   # 目標溫度
+    auto_cool_enabled: bool = False     # 是否啟用自動冷卻
 '''
 def record(state: AgentState) -> AgentState:
     """樹莓派的錄音節點"""
@@ -48,6 +53,15 @@ def record(state: AgentState) -> AgentState:
 def record_analyze(state: AgentState) -> AgentState:
     """whisper.cpp解析.wav檔案並寫入input.txt"""
     text = stt_pipeline(duration=4, device=DEVICE_PORT)
+
+    # 從 DHT11 獲取環境溫度
+    ambient_temp = None
+    if hasattr(src, 'dht_reader') and src.dht_reader:
+        ambient_temp = src.dht_reader.get_temp_int()
+        print(f"[DEBUG] Ambient temperature: {ambient_temp}°C")
+        # 可以將環境溫度存儲到狀態中
+        state["ambient_temp"] = ambient_temp
+
     if text and text.strip():
         cleaned_text = text.strip()
         write_text_file(INPUT_FILE, cleaned_text)  # 寫檔
@@ -65,6 +79,11 @@ def parse_actions(state: AgentState) -> AgentState:
     """決定用fastpath or gemini_parsed"""
     text = state["input_text"]
 
+    # 從 AgentState 類別或是 DHT11 獲取環境溫度
+    ambient_temp = state.get("ambient_temp")
+    if ambient_temp is None and hasattr(src, 'dht_reader') and src.dht_reader:
+        ambient_temp = src.dht_reader.get_temp_int()
+
     if not text:
         state["raw_actions"] = []
         state["status"] = "parse_failed"
@@ -80,8 +99,16 @@ def parse_actions(state: AgentState) -> AgentState:
         state["parse_source"] = "fastpath"
         state["llm_reply"] = None
     else:
-        # 再用 gemini
-        actions, llm_reply = parse_with_gemini(text, return_reply=True)
+        # 再用 gemini，傳遞環境溫度
+        current_temp = 25  # 預設目標溫度，可以從狀態中獲取
+        if hasattr(src, 'disp') and src.disp:
+            current_temp = getattr(src.disp, 'current_temp', 25)
+
+        actions, llm_reply = parse_with_gemini(
+            text, return_reply=True, 
+            current_temp=current_temp, 
+            ambient_temp=ambient_temp # 傳遞環境溫度
+        )
         state["llm_reply"] = llm_reply
         state["parse_source"] = "gemini"
         if actions:
@@ -175,12 +202,34 @@ def init_hardware_node(state: AgentState) -> AgentState:
     # LED
     led_setup()
     
+    # DHT 溫濕度感測器
+    global dht_reader
+    try:
+        from src.nodes.langgraph_split_files.hardware_dht11 import DHT11Reader
+        dht_reader = DHT11Reader()
+        dht_reader.start()
+        src.dht_reader = dht_reader  # 存儲到 src 模組中
+        print("[INFO] DHT11 initialized and started")
+    except Exception as e:
+        print(f"[WARNING] Failed to initialize DHT11: {e}")
+        src.dht_reader = None
+
     state["status"] = "hardware_initialized"
     return state
 
 def execute_hardware(state: AgentState) -> AgentState:
-    """執行硬件動作"""
-    # 硬件已在 main.py 中初始化，這裡只執行動作
+    """
+    執行硬件動作
+    硬件已在 main.py 中初始化，這裡只執行動作
+    """
+
+    # 獲取環境溫度
+    ambient_temp = None
+    if hasattr(src, 'dht_reader') and src.dht_reader:
+        ambient_temp = src.dht_reader.get_temp_int()
+
+    # 設定溫度變數
+    setpoint_temp = 25  # 預設目標溫度
 
     if not state.get("validated_actions"):
         state["status"] = "no_actions"
@@ -192,35 +241,49 @@ def execute_hardware(state: AgentState) -> AgentState:
         try:
             if action["type"] == "SET_TEMP":
                 if src.disp:
-                    src.disp.set_temp(action["value"])
+                    temp = action["value"]
+                    src.disp.set_temp(temp)
+                    setpoint_temp = temp  # 更新目標溫度
+                    
+                    # 記錄目標溫度到狀態中
+                    state["setpoint_temp"] = temp
                 else:
                     errors.append("7段顯示器尚未初始化")
+
             elif action["type"] == "FAN":
-                set_fan(action["state"])
+                fan_state = action["state"]
+                set_fan(fan_state)
+
+                # 如果有持續時間，處理定時關閉
+                duration = action.get("duration")
+                if duration and fan_state == "on":
+                    # 可以啟動定時器線程來自動關閉
+                    pass
+
             elif action["type"] == "LED":
                 set_led(action["location"], action["state"])
+
         except Exception as e:
             errors.append(str(e))
             continue
+    
+    # 自動冷卻邏輯（可選）
+    if ambient_temp is not None and state.get("auto_cool_enabled", False):
+        setpoint_temp = state.get("setpoint_temp", 25)
+        hyst = 2  # 溫度滯後值
+        
+        if ambient_temp >= (setpoint_temp + hyst):
+            set_fan("on")
+    
+        elif ambient_temp <= (setpoint_temp - hyst):
+            set_fan("off")
+
     if errors:
         state["status"] = "hardware_error"
         state["error_message"] = "; ".join(errors)
         return state
     
     state["status"] = "executed"
-    return state
-
-def cleanup_hardware_node(state: AgentState) -> AgentState:
-    """清理所有硬件"""
-    try:
-        if "disp" in globals() and disp:
-            disp.cleanup()
-        fan_cleanup()
-        led_cleanup()
-    except Exception as e:
-        print(f"清理硬件時發生錯誤: {e}")
-    
-    state["status"] = "cleaned"
     return state
 
 def update_history(state: AgentState) -> AgentState:
@@ -313,6 +376,7 @@ graph.add_node("execute_hardware", execute_hardware)
 graph.add_node("update_history", update_history)
 graph.add_node("check_end", check_end)
 graph.add_node("clarify_or_continue", clarify_or_continue)
+graph.add_node("update_hardware_status", update_hardware_status)
 
 # 設定起始點
 graph.set_entry_point("record_analyze")
@@ -330,6 +394,8 @@ graph.add_conditional_edges(
 )
 graph.add_edge("execute_hardware", "update_history")
 graph.add_edge("update_history", "check_end")
+graph.add_edge("execute_hardware", "update_hardware_status")
+graph.add_edge("update_hardware_status", "update_history")
 
 # 條件邊緣：根據 check_end 的結果
 graph.add_conditional_edges(
