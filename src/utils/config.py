@@ -110,3 +110,34 @@ LED_LOCATION_TO_PIN = {
     LOC_LIVING:  LED_GREEN,
     LOC_GUEST:   LED_YELLOW,
 }
+
+# -------------------------
+# DHT11 temperature/humidity sensor (BCM pin)
+# -------------------------
+# Enable/disable by environment variable DHT11_ENABLED=1/0
+DHT11_ENABLED = os.getenv("DHT11_ENABLED", "1").strip() not in ("0", "false", "False", "OFF", "off")
+DHT11_PIN = int(os.getenv("DHT11_PIN", "17"))  # BCM pin number (default GPIO17)
+# Read interval (seconds). DHT11 is slow; 2s is safe.
+DHT11_READ_INTERVAL_SEC = float(os.getenv("DHT11_READ_INTERVAL_SEC", "2.0"))
+
+# Auto cooling control (using FAN relay as the actuator).
+# If ambient >= setpoint + hysteresis -> FAN ON
+# If ambient <= setpoint - hysteresis -> FAN OFF
+AUTO_COOL_ENABLED = os.getenv("AUTO_COOL_ENABLED", "1").strip() not in ("0", "false", "False", "OFF", "off")
+AUTO_COOL_HYST = float(os.getenv("AUTO_COOL_HYST", "0.5"))
+# After a manual FAN command, pause auto control for a while (seconds)
+AUTO_PAUSE_AFTER_MANUAL_FAN_SEC = int(os.getenv("AUTO_PAUSE_AFTER_MANUAL_FAN_SEC", "120"))
+
+# When user sets temperature, briefly show the setpoint on 7-seg then go back to ambient (seconds)
+SHOW_SETPOINT_SEC = float(os.getenv("SHOW_SETPOINT_SEC", "2.0"))
+
+
+# -------------------------
+# Display behavior
+# -------------------------
+# Scheme A: always show target/setpoint on 7-seg.
+# Options: 'setpoint' (default), 'ambient'
+DISPLAY_MODE = os.getenv("DISPLAY_MODE", "setpoint").strip().lower()
+
+# Delay between processing input lines (seconds). Helps the 7-seg show intermediate changes.
+INPUT_LINE_DELAY_SEC = float(os.getenv("INPUT_LINE_DELAY_SEC", "0.8"))
