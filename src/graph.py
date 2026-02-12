@@ -393,8 +393,7 @@ graph.add_conditional_edges(
 )
 graph.add_edge("execute_hardware", "update_history")
 graph.add_edge("update_history", "check_end")
-graph.add_edge("execute_hardware", "update_hardware_status")
-graph.add_edge("update_hardware_status", "update_history")
+
 
 # 條件邊緣：根據 check_end 的結果
 graph.add_conditional_edges(
