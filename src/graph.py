@@ -376,7 +376,6 @@ graph.add_node("execute_hardware", execute_hardware)
 graph.add_node("update_history", update_history)
 graph.add_node("check_end", check_end)
 graph.add_node("clarify_or_continue", clarify_or_continue)
-graph.add_node("update_hardware_status", update_hardware_status)
 
 # 設定起始點
 graph.set_entry_point("record_analyze")
