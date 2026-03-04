@@ -31,6 +31,18 @@ HISTORY_FILE = DATA_DIR / "history.jsonl"
 REPLY_FILE   = DATA_DIR / "reply.txt"  # optional: human-friendly confirmations
 RECORDINGS_DIR = DATA_DIR / "recordings"
 
+# --- 提示音效 (Earcons) 設定 ---
+AUDIO_DIR = DATA_DIR / "audio"
+SOUND_GET = AUDIO_DIR / "dong_ding.wav"
+
+# --- TTS (Piper 語音引擎) 設定 ---
+PIPER_DIR = PROJECT_ROOT / "piper"  
+PIPER_EXE = PIPER_DIR / "piper"
+
+# 語音模型統一下載到 models 資料夾
+MODELS_DIR = DATA_DIR / "models"
+TTS_MODEL = MODELS_DIR / "voice.onnx"
+
 HISTORY_KEEP = 5
 
 # src part (待補)

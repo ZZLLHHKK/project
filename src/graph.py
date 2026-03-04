@@ -1,6 +1,8 @@
 from src.utils.audio import record_with_arecord, stt_pipeline
 from src.utils.file_io import read_text, write_text_file
 from src.utils.config import *
+from src.utils.tts import speak
+import random
 # DEVICE_PORT, INPUT_FILE, OUTPUT_FILE, ACTIONS_FILE, MEMORY_FILE, HISTORY_FILE, REPLY_FILE
 
 # langggraph_split_files
@@ -98,6 +100,13 @@ def parse_actions(state: AgentState) -> AgentState:
         state["status"] = "fastpath_parsed"
         state["parse_source"] = "fastpath"
         state["llm_reply"] = None
+
+        # --- 新增：Fastpath 隨機罐頭語音 ---
+        fastpath_replies = ["好的，馬上為您處理。", "沒問題，幫您執行。", "收到。"]
+        reply_text = random.choice(fastpath_replies)
+        state["llm_reply"] = reply_text
+        speak(reply_text)
+
     else:
         # 再用 gemini，傳遞環境溫度
         current_temp = 25  # 預設目標溫度，可以從狀態中獲取
@@ -118,7 +127,8 @@ def parse_actions(state: AgentState) -> AgentState:
             state["raw_actions"] = []
             state["status"] = "parse_failed"
         if llm_reply:
-            write_text_file(OUTPUT_FILE, llm_reply)
+            speak(llm_reply)
+            write_text_file(OUTPUT_FILE, llm_reply) # 看要不要改成印在終端，或是刪除
 
     return state
 
@@ -358,6 +368,8 @@ def clarify_or_continue(state: AgentState) -> AgentState:
         if message:
             print(f"澄清訊息: {message}")  # 這裡可以替換為 TTS 或寫入 reply.txt
             write_text_file(REPLY_FILE, message)  # 假設寫入回覆文件
+            speak(message)
+            
         # 重置標誌
         state["needs_clarification"] = False
         state["clarification_message"] = None
