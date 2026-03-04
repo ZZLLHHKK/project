@@ -7,6 +7,15 @@ from src.utils.config import PROJECT_ROOT, DATA_DIR, RECORDINGS_DIR, INPUT_FILE,
 
 RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
 
+SOUNDS_DIR = DATA_DIR / "audio"
+FINISH_SOUND = SOUNDS_DIR / "dong_ding.wav"
+
+def play_notification(wav_path: Path):
+    """小工具：播放提示音效"""
+    if wav_path.exists():
+        # -q 代表靜音模式，避免在終端機噴一堆播放資訊
+        subprocess.run(["aplay", "-q", str(wav_path)], check=False)
+
 def record_with_arecord(
     duration: int = 4,                  # 秒數
     device: str = DEVICE_PORT,         # 改成你的裝置，從 arecord -l 看
@@ -37,6 +46,7 @@ def record_with_arecord(
     try:
         subprocess.run(cmd, check=True)
         #print(f"錄音完成，已儲存：{output_path}")
+        play_notification(FINISH_SOUND)
         return str(output_path)
     except subprocess.CalledProcessError as e:
         #print(f"錄音失敗：{e}")
