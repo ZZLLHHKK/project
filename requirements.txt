@@ -19,3 +19,5 @@ ipykernel
 faster-whisper
 RPi.GPIO
 google-genai
+pvporcupine
+pyaudio

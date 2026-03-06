@@ -3,6 +3,9 @@
 import os
 import subprocess
 import time
+import sys
+import threading
+import itertools
 from pathlib import Path
 from src.utils.config import PROJECT_ROOT, DATA_DIR, RECORDINGS_DIR, INPUT_FILE, DEVICE_PORT, MODELS_DIR
 
@@ -13,6 +16,21 @@ RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
 # 環境很安靜 → 保持 1% 或調低到 0.5%（更精準偵測說話結束）
 # 太高（>10%）→ 可能連說話聲都被當靜音，錄音直接結束
 # 太低（<0.5%）→ 很難偵測到靜音，會一直錄到手動停止
+
+def _thinking_animation(stop_event):
+    """背景播放『思考中』動畫的函式"""
+
+    spinner = itertools.cycle(['.  ', '.. ', '...']) 
+    
+    while not stop_event.is_set():
+        # \r 代表「回到這一行的最前面」，這樣就能覆蓋舊的文字產生動畫感
+        sys.stdout.write(f'\r正在思考與辨識中{next(spinner)}')
+        sys.stdout.flush() # 強制刷新畫面
+        time.sleep(0.3)    # 控制動畫的速度
+        
+    # 動畫結束時，清空這一行，準備印出辨識結果
+    sys.stdout.write('\r' + ' ' * 30 + '\r')
+    sys.stdout.flush()
 
 def record_with_sox(
     output_path: Path = RECORDINGS_DIR / "latest.wav",
@@ -66,10 +84,10 @@ def record_with_sox(
 from src.utils.whisper_local import transcribe_latest_wav
 from src.utils.file_io import write_text_file  
 
-'''
+
 def stt_pipeline(
-    silence_duration: float = 1.5,
-    silence_threshold: float = 1.0,
+    silence_duration: float = 1.5, # 停頓 1.5 秒結束
+    silence_threshold: float = 1.0, # 靜音門檻 (如果發現太容易斷掉，可以調大到 10.0 或 20.0)
     device: str = DEVICE_PORT,
     model_name: str | None = None,
     language: str = "auto"
@@ -81,6 +99,8 @@ def stt_pipeline(
     3. 寫入 input.txt(覆蓋)
     返回辨識文字
     """
+    print(f"\n 請開始說話... (停頓 {silence_duration} 秒自動結束)")
+
     # 步驟1：錄音（會覆蓋 latest.wav）
     wav_path = record_with_sox(
         silence_duration=silence_duration,
@@ -92,25 +112,34 @@ def stt_pipeline(
         return ""
 
     # 步驟2：轉錄
+    # 啟動動畫背景小精靈
+    stop_event = threading.Event()
+    spinner_thread = threading.Thread(target=_thinking_animation, args=(stop_event,))
+    spinner_thread.start()
+
     try:
         text = transcribe_latest_wav(
             model_name=model_name or MODELS_DIR,
             language=language,
-            input_wav=wav_path
         )
+
+        stop_event.set()
+        spinner_thread.join()
+
         text = text.strip()
         if not text or text == "[無辨識結果]":
-            #print("轉錄結果為空或無效")
             return ""
+        
+        # 印出漂亮的使用者輸入提示
+        print(f"👤 [你說]: {text}")
 
         # 步驟3：寫入 input.txt
         write_text_file(INPUT_FILE, text)
-        # print(f"轉錄完成，已寫入 {INPUT_FILE}")
-        # print(f"辨識文字：{text}")
-
+    
         return text
 
     except Exception as e:
+        stop_event.set()
+        spinner_thread.join()
         print(f"轉錄階段失敗：{str(e)}")
         return ""
-'''

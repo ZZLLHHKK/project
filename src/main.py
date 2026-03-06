@@ -9,6 +9,8 @@ import os
 import time
 from src.graph import app  # 引入編譯好的 LangGraph app
 from src import setup_gemini_api, initialize_hardware, cleanup_hardware  # 從包初始化導入
+from src.utils.wakeword import wait_for_wake_word
+from src.utils.tts import speak
 
 def main():
     """主函式"""
@@ -31,43 +33,51 @@ def main():
         
         # 運行一次 LangGraph 流程
         print("\n=== 智能家居語音控制系統啟動 ===")
-        print("說 '結束'、'停止' 或 '再見' 來結束對話")
-        print("說話後系統會自動處理...")
+        print("提示: 按 Ctrl+C 可以強制結束程式")
         
-        # 初始狀態
-        initial_state = {
-            "input_text": "",
-            "raw_actions": [],
-            "validated_actions": [],
-            "status": "start",
-            "memory_rules": {},
-            "history": [],
-            "last_input_time": time.time(),
-            "needs_clarification": False,
-            "clarification_message": None,
-            "llm_reply": None,
-            "parse_source": None,
-            "failure_count": 0,
-            "error_message": None
-        }
-        
-        print("\n等待語音輸入...")
-        
-        # 運行 LangGraph 流程
-        result = app.invoke(initial_state)
-        
-        print(f"處理狀態: {result.get('status', 'unknown')}")
+        while True:
 
-        if result.get("llm_reply"):
-            print("Gemini 回覆：")
-            print(result.get("llm_reply"))
+            wakeword_detected = wait_for_wake_word(keyword="jarvis")
+            
+            if not wakeword_detected:
+                print("喚醒詞引擎異常，結束系統")
+                break
+            
+            # 語音回饋
+            speak("嗯...哼？")
+            time.sleep(0.2)
 
-        if result.get("error_message"):
-            print(f"錯誤訊息: {result.get('error_message')}")
-        
-        if result.get("status") in ["end", "error"]:
-            print("對話結束")
-        
+            # 初始狀態
+            initial_state = {
+                "input_text": "",
+                "raw_actions": [],
+                "validated_actions": [],
+                "status": "start",
+                "memory_rules": {},
+                "history": [],
+                "last_input_time": time.time(),
+                "needs_clarification": False,
+                "clarification_message": None,
+                "llm_reply": None,
+                "parse_source": None,
+                "failure_count": 0,
+                "error_message": None
+            }
+            
+            # 運行 LangGraph 流程
+            result = app.invoke(initial_state)
+            
+            print(f"處理狀態: {result.get('status', 'unknown')}")
+
+            if result.get("llm_reply"):
+                print("Gemini 回覆：")
+                print(result.get("llm_reply"))
+
+            if result.get("error_message"):
+                print(f"錯誤訊息: {result.get('error_message')}")
+            
+            print("-" * 50)
+            
     except KeyboardInterrupt:
         print("\n用戶中斷")
     except Exception as e:
@@ -75,6 +85,7 @@ def main():
     finally:
         # 確保清理
         cleanup_hardware()
+        print("系統安全關閉")
 
 if __name__ == "__main__":
     main()
