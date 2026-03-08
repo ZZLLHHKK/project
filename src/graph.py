@@ -1,7 +1,7 @@
 from src.utils.audio import record_with_arecord, stt_pipeline
 from src.utils.file_io import read_text, write_text_file
 from src.utils.config import *
-# DEVICE_PORT, INPUT_FILE, OUTPUT_FILE, ACTIONS_FILE, MEMORY_FILE, HISTORY_FILE, REPLY_FILE
+# DEVICE_PORT, INPUT_FILE, OUTPUT_FILE, ACTIONS_FILE, RULES_FILE, HISTORY_FILE, REPLY_FILE
 
 # langggraph_split_files
 from src.nodes.langgraph_split_files.actions_schema import ActionDict

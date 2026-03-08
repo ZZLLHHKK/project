@@ -14,8 +14,8 @@ cd "$SCRIPT_DIR/.." || {
 }
 
 # 確認在正確根目錄
-if [ ! -f "requirement.txt" ] || [ ! -d "src" ]; then
-    echo "錯誤：請確認專案根目錄有 requirement.txt 和 src/ 資料夾"
+if [ ! -f "requirements.txt" ] || [ ! -d "src" ]; then
+    echo "錯誤：請確認專案根目錄有 requirements.txt 和 src/ 資料夾"
     echo "目前目錄：$(pwd)"
     ls -la
     exit 1
@@ -45,7 +45,7 @@ fi
 echo "Step 4: 啟用虛擬環境並安裝 Python 套件..."
 source .venv/bin/activate
 pip install --upgrade pip
-pip install -r requirement.txt
+pip install -r requirements.txt
 
 # 完成
 echo ""

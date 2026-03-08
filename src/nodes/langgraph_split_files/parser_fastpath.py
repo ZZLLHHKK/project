@@ -1,10 +1,10 @@
 """
-Fast-path parsing & memory rule learning/application.
+Fast-path parsing & rule learning/application.
 
 This module aims to avoid LLM calls when the user intent is explicit.
-It also preserves the "memory" capability from temp_7seg_fuzzy_memory.py:
+It also preserves the "rule learning" capability from temp_7seg_fuzzy_memory.py:
 - Learn rules like: 當我說 X 代表 Y
-- Store to memory.txt as: RULE: When user says 'X', it means 'Y'.
+- Store to rules.json as: RULE: When user says 'X', it means 'Y'.
 - Apply those rules by rewriting user text before parsing.
 """
 from __future__ import annotations
@@ -37,7 +37,7 @@ LEARN_PATTERNS = [
 
 def try_learn_rule(user_text: str) -> Optional[Dict[str, Any]]:
     """
-    If user text looks like a "teaching" sentence, save it into memory.txt.
+    If user text looks like a "teaching" sentence, save it into rules.json.
     Returns a dict describing what was saved, or None.
     """
     t = (user_text or "").strip()
@@ -51,7 +51,7 @@ def try_learn_rule(user_text: str) -> Optional[Dict[str, Any]]:
             continue
 
         rule_line = f"RULE: When user says '{trigger}', it means '{meaning}'."
-        append_line_unique(config.MEMORY_FILE, rule_line)
+        append_line_unique(config.RULES_FILE, rule_line)
         out = {"intent": "learn_rule", "saved_rule": {"trigger": trigger, "meaning": meaning}}
         push_history(user_text, out)
         return out

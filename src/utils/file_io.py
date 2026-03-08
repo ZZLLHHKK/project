@@ -5,8 +5,7 @@ import time
 import re
 from typing import List, Dict, Any, Tuple, Optional
 
-from src.utils.config import INPUT_FILE, OUTPUT_FILE, HISTORY_FILE, MEMORY_FILE, HISTORY_KEEP
-from src.nodes.short_command import match_short_command
+from src.utils.config import INPUT_FILE, OUTPUT_FILE, HISTORY_FILE, RULES_FILE, HISTORY_KEEP
 
 def ensure_file(path: str) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -68,13 +67,72 @@ def format_history_for_prompt() -> str:
 
 RULE_LINE_RE = re.compile(r"^RULE:\s*When user says '(.+?)', it means '(.+?)'\.\s*$")
 
+
+def _ensure_rules_file() -> None:
+    """Ensure rules file exists and defaults to JSON structure."""
+    os.makedirs(os.path.dirname(RULES_FILE), exist_ok=True)
+    if not os.path.exists(RULES_FILE):
+        with open(RULES_FILE, "w", encoding="utf-8") as f:
+            json.dump({"rules": []}, f, ensure_ascii=False, indent=2)
+
+
+def save_rule(trigger: str, meaning: str) -> bool:
+    """Save one memory rule into JSON, return True when inserted (False if duplicate)."""
+    trigger = (trigger or "").strip()
+    meaning = (meaning or "").strip()
+    if not trigger or not meaning:
+        return False
+
+    rules = load_rules()
+    if (trigger, meaning) in rules:
+        return False
+
+    rules.append((trigger, meaning))
+    _ensure_rules_file()
+    payload = {
+        "rules": [{"trigger": t, "meaning": m} for t, m in rules]
+    }
+    with open(RULES_FILE, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    return True
+
+
+def format_rules_for_prompt() -> str:
+    """Render rules into concise prompt-friendly text."""
+    rules = load_rules()
+    if not rules:
+        return "(empty)"
+    return "\n".join(f"- '{t}' => '{m}'" for t, m in rules)
+
 def load_rules() -> List[Tuple[str, str]]:
     """
-    Parse memory.txt rule lines.
+    Load memory rules from JSON file.
+    Backward compatible: if file still contains legacy RULE lines, parse them too.
     """
-    ensure_file(MEMORY_FILE)
-    txt = read_text(MEMORY_FILE)
+    _ensure_rules_file()
+    txt = read_text(RULES_FILE)
     rules: List[Tuple[str, str]] = []
+
+    if not txt:
+        return rules
+
+    # Preferred format: {"rules": [{"trigger": "...", "meaning": "..."}]}
+    try:
+        data = json.loads(txt)
+        items = data.get("rules", []) if isinstance(data, dict) else []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            trigger = str(item.get("trigger", "")).strip()
+            meaning = str(item.get("meaning", "")).strip()
+            if trigger and meaning:
+                rules.append((trigger, meaning))
+        if rules:
+            return rules
+    except Exception:
+        pass
+
+    # Legacy fallback format: RULE: When user says 'X', it means 'Y'.
     for ln in txt.splitlines():
         ln = ln.strip()
         if not ln:
@@ -109,14 +167,3 @@ def read_text(path: str) -> str:
     except Exception as e:
         print(f"讀檔失敗：{e}")
         return ""
-    
-# 可略
-def write_output(path: str, command: dict):
-    """把 short command 的 dict 寫成 JSON 檔"""
-    try:
-        json_str = json.dumps(command, ensure_ascii=False, indent=2)
-        with open(path, 'w', encoding='utf-8') as f:
-            f.write(json_str + "\n")
-        print(f"成功寫入 output.txt : {json_str}")
-    except Exception as e:
-        print(f"寫 output 失敗：{e}")

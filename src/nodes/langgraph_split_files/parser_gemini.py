@@ -4,7 +4,7 @@ Gemini-based fuzzy parsing for:
 - Fan on/off
 - Kitchen/Living/Guest lights on/off
 
-Keeps "fuzzy semantics" + "memory rules" features by injecting memory.txt
+Keeps "fuzzy semantics" + "memory rules" features by injecting rules.json
 and recent history.jsonl into the prompt.
 """
 from __future__ import annotations
@@ -71,14 +71,14 @@ def parse_with_gemini(
     # Apply memory rewrites first (so user-defined shortcuts affect the prompt too)
     rewritten = apply_memory_rules(user_text)
 
-    memory_context = read_text(config.MEMORY_FILE)
+    rules_context = read_text(config.RULES_FILE)
     history_context = format_history_for_prompt()
     cur = int(current_temp) if current_temp is not None else 25
     amb = int(ambient_temp) if ambient_temp is not None else None
 
     # keep bounded
-    if len(memory_context) > 2000:
-        memory_context = memory_context[-2000:]
+    if len(rules_context) > 2000:
+        rules_context = rules_context[-2000:]
     if len(history_context) > 2000:
         history_context = history_context[-2000:]
 
@@ -87,12 +87,16 @@ You are a smart-home command parser.
 You must output JSON ONLY.
 
 OUTPUT FORMAT (hard constraints):
-- Output must be exactly a single JSON array.
-- Each element is an action object with:
+- Output must be exactly a single JSON object with two keys: "actions" and "reply".
+- "actions": A JSON array of action objects.
   - type: one of ["SET_TEMP","FAN","LED"]
   - For SET_TEMP: value (number)
   - For FAN: state ("on"|"off"), optional duration (seconds integer)
   - For LED: location ("KITCHEN"|"LIVING"|"GUEST"), state ("on"|"off"), optional duration (seconds integer)
+- "reply": A natural, conversational response in Traditional Chinese (zh-TW). 
+  - Act as a helpful assistant. (e.g., "好的，已經為您開啟客廳燈。")
+  - Use commas (，) and periods (。) properly for text-to-speech pauses.
+  - If a request violates constraints (e.g., temperature > {config.MAX_TEMP}), return empty actions [] and politely explain why in the reply.
 
 DEVICE MAPPING:
 - Kitchen light => LED location "KITCHEN"
@@ -127,7 +131,7 @@ CONTEXT:
 - Current temperature setting is {cur} °C.
 - Ambient temperature from sensor is {amb} °C (if provided).
 - Memory rules (user preferences) to apply:
-{memory_context if memory_context else "(empty)"}
+{rules_context if rules_context else "(empty)"}
 
 - Recent conversation history (most recent last):
 {history_context if history_context else "(empty)"}
@@ -158,18 +162,24 @@ Now output JSON only.
         data = json.loads(raw)
     except Exception:
         # Fail-closed
-        return ([], raw) if return_reply else []
+        fallback_reply = "抱歉，可以請您再說一次嗎？"
+        return ([], fallback_reply) if return_reply else []
 
-    if not isinstance(data, list):
-        return ([], raw) if return_reply else []
+    if not isinstance(data, dict):
+        return ([], "解析格式錯誤。") if return_reply else []
+
+    # 萃取出 actions 陣列與 reply 字串
+    raw_actions = data.get("actions", [])
+    reply_text = data.get("reply", "好的，已為您處理。")
 
     actions: List[ActionDict] = []
-    for item in data:
-        if isinstance(item, dict):
-            actions.append(dict(item))
+    if isinstance(raw_actions, list):
+        for item in raw_actions:
+            if isinstance(item, dict):
+                actions.append(dict(item))
 
     # Validate & normalize
     validated = validate_actions(actions)
     if return_reply:
-        return validated, raw
+        return validated, reply_text
     return validated

@@ -1,0 +1,32 @@
+project/
+│
+├── core/
+│   ├── agent.py
+│   ├── state_manager.py
+│   ├── memory_agent.py
+│   ├── validator.py
+│   └── router.py
+│
+├── llm/
+│   ├── llm_engine.py
+│   └── prompt_builder.py
+│
+├── audio/
+│   └── speech_processor.py
+│
+├── devices/
+│   └── device_controller.py
+│
+└── main.py
+
+
+進入 langgraph 設計
+
+User: 幫我把溫度調舒服一點
+
+→ AI 要先查現在溫度
+→ 再查使用者歷史偏好
+→ 再推理最佳值
+→ 再確認設備是否允許
+→ 再決定是否詢問用戶
+→ 如果用戶回應再繼續下一步

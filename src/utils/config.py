@@ -26,15 +26,14 @@ DATA_DIR = PROJECT_ROOT / "data"
 INPUT_FILE = DATA_DIR / "input.txt"
 OUTPUT_FILE = DATA_DIR / "output.txt"
 ACTIONS_FILE = DATA_DIR / "actions.txt"
-MEMORY_FILE  = DATA_DIR / "memory.txt"
+RULES_FILE  = DATA_DIR / "memory" / "rules.json"
 HISTORY_FILE = DATA_DIR / "history.jsonl"
 REPLY_FILE   = DATA_DIR / "reply.txt"  # optional: human-friendly confirmations
 RECORDINGS_DIR = DATA_DIR / "recordings"
+LONG_TERM = DATA_DIR / "memory" / "long_term.jsonl"
+SHORT_TERM = DATA_DIR / "memory" / "short_term.json"  
 
 HISTORY_KEEP = 5
-
-# src part (待補)
-SRC_DIR = PROJECT_ROOT / "src"
 
 # whisper model settings (faster-whisper)
 # Use Hugging Face repo names for CTranslate2 models
