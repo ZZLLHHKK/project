@@ -60,7 +60,7 @@ def main():
                 break
             
             # 語音回饋
-            speak("嗯...哼？")
+            speak("我在")
 
             # 運行 LangGraph 流程
             result = app.invoke(initial_state)

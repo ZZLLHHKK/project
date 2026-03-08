@@ -35,7 +35,7 @@ def _thinking_animation(stop_event):
 def record_with_sox(
     output_path: Path = RECORDINGS_DIR / "latest.wav",
     silence_duration: float = 1.5,      # 靜音持續多久就停止（秒）
-    silence_threshold: float = 20.0,     # 靜音門檻（音量百分比，1% = 很安靜）
+    silence_threshold: float = 5.0,     # 靜音門檻（音量百分比，1% = 很安靜）
     sample_rate: int = 16000,
     channels: int = 1,
     device: str = DEVICE_PORT           # 從 config 來的麥克風裝置
@@ -83,11 +83,22 @@ def record_with_sox(
 # analyze part
 from src.utils.whisper_local import transcribe_latest_wav
 from src.utils.file_io import write_text_file  
+from src.utils.config import SOUND_GET
 
 
+def play_notification(wav_path: Path):
+    """小工具：播放提示音效"""
+    if wav_path.exists():
+        # -q 代表靜音模式，避免在終端機噴一堆播放資訊
+        subprocess.run(["aplay", "-q", str(wav_path)], check=False)
+    else:
+        print(f"[警告] 找不到音效檔: {wav_path}")
+
+
+# 完整語音轉文字流程：
 def stt_pipeline(
     silence_duration: float = 1.5, # 停頓 1.5 秒結束
-    silence_threshold: float = 1.0, # 靜音門檻 (如果發現太容易斷掉，可以調大到 10.0 或 20.0)
+    silence_threshold: float = 5.0, # 靜音門檻 (如果發現太容易斷掉，可以調大到 10.0 或 20.0)
     device: str = DEVICE_PORT,
     model_name: str | None = None,
     language: str = "auto"
@@ -110,6 +121,9 @@ def stt_pipeline(
     if not wav_path:
         #print("錄音失敗，無法繼續轉錄")
         return ""
+
+    # --- 👇錄音一結束，馬上播放「咚」👇 ---
+    play_notification(SOUND_GET)
 
     # 步驟2：轉錄
     # 啟動動畫背景小精靈

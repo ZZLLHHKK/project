@@ -53,7 +53,7 @@ def record(state: AgentState) -> AgentState:
 
 def record_analyze(state: AgentState) -> AgentState:
     """whisper.cpp解析.wav檔案並寫入input.txt"""
-    text = stt_pipeline(silence_duration=1.5, silence_threshold=2.0)
+    text = stt_pipeline(silence_duration=1.5, silence_threshold=5.0)
 
     # 從 DHT11 獲取環境溫度
     ambient_temp = None
