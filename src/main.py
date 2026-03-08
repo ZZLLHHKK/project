@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))  # parents[0] = project
 
 from src.graph import app  # 引入編譯好的 LangGraph app
 from src import setup_gemini_api, initialize_hardware, cleanup_hardware  # 從包初始化導入
-from src.utils.wakeword import wait_for_wake_word
+from src.utils.wait_wakeword import wait_for_wake_word
 from src.utils.tts import speak
 
 def main():
