@@ -64,9 +64,6 @@ def parse_with_gemini(
     """
     if not user_text or not user_text.strip():
         return ([], None) if return_reply else []
-    if client is None:
-        # Provide a friendly error if API key is missing.
-        raise RuntimeError("Missing GEMINI_API_KEY. Please: export GEMINI_API_KEY=... (and optionally GEMINI_MODEL=...)")
     
     # Apply memory rewrites first (so user-defined shortcuts affect the prompt too)
     rewritten = apply_memory_rules(user_text)

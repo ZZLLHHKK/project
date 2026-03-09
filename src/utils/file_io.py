@@ -6,7 +6,6 @@ import re
 from typing import List, Dict, Any, Tuple, Optional
 
 from src.utils.config import INPUT_FILE, OUTPUT_FILE, HISTORY_FILE, MEMORY_FILE, HISTORY_KEEP
-from src.nodes.short_command import match_short_command
 
 def ensure_file(path: str) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)

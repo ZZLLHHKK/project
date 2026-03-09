@@ -7,6 +7,7 @@ import sys
 import threading
 import itertools
 from pathlib import Path
+from typing import Optional
 from src.utils.config import PROJECT_ROOT, DATA_DIR, RECORDINGS_DIR, INPUT_FILE, DEVICE_PORT, MODELS_DIR
 
 RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
@@ -100,7 +101,7 @@ def stt_pipeline(
     silence_duration: float = 1.5, # 停頓 1.5 秒結束
     silence_threshold: float = 5.0, # 靜音門檻 (如果發現太容易斷掉，可以調大到 10.0 或 20.0)
     device: str = DEVICE_PORT,
-    model_name: str | None = None,
+    model_name: Optional[str] = None,
     language: str = "auto"
 ) -> str:
     """

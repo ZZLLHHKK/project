@@ -1,10 +1,4 @@
-import sys
-import os
 import time
-from pathlib import Path
-
-# 自動加專案根目錄到 sys.path
-sys.path.insert(0, str(Path(__file__).resolve().parent))  # parents[0] = project/ 根目錄
 
 from src.graph import app  # 引入編譯好的 LangGraph app
 from src import setup_gemini_api, initialize_hardware, cleanup_hardware  # 從包初始化導入

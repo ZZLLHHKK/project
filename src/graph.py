@@ -9,17 +9,15 @@ import src  # 導入包以訪問 disp
 
 # langggraph_split_files
 from src.nodes.langgraph_split_files.actions_schema import ActionDict
-from src.nodes.langgraph_split_files.parser_fastpath import parse_fastpath, apply_memory_rules
+from src.nodes.langgraph_split_files.parser_fastpath import parse_fastpath
 from src.nodes.langgraph_split_files.parser_gemini import parse_with_gemini
 from src.nodes.langgraph_split_files.validator import validate_actions
-from src.nodes.langgraph_split_files.hardware_led import setup as led_setup, set_led, cleanup as led_cleanup
-from src.nodes.langgraph_split_files.hardware_fan import setup as fan_setup, set_fan, cleanup as fan_cleanup
-from src.nodes.langgraph_split_files.hardware_7seg import SevenSegDisplay
-from src.nodes.langgraph_split_files.hardware_dht11 import DHT11Reader
+from src.nodes.langgraph_split_files.hardware_led import set_led
+from src.nodes.langgraph_split_files.hardware_fan import set_fan
 
 # langgraph modules
-from typing import TypedDict, Annotated, List, Dict, Any, Optional # Imports all the data types we need
-from langgraph.graph import StateGraph, START, END
+from typing import TypedDict, List, Dict, Any, Optional # Imports all the data types we need
+from langgraph.graph import StateGraph, END
 
 class AgentState(TypedDict):
     input_text: str                    # 使用者輸入的文字
@@ -138,35 +136,6 @@ def validate_actions_node(state: AgentState) -> AgentState:
     
     return state
 
-def init_hardware_node(state: AgentState) -> AgentState:
-    """初始化所有硬件"""
-    # 7段顯示器
-    global disp
-    disp = SevenSegDisplay()
-    disp.setup()
-    disp.start()
-    
-    # 風扇
-    fan_setup()
-    
-    # LED
-    led_setup()
-    
-    # DHT 溫濕度感測器
-    global dht_reader
-    try:
-        from src.nodes.langgraph_split_files.hardware_dht11 import DHT11Reader
-        dht_reader = DHT11Reader()
-        dht_reader.start()
-        src.dht_reader = dht_reader  # 存儲到 src 模組中
-        print("[INFO] DHT11 initialized and started")
-    except Exception as e:
-        print(f"[WARNING] Failed to initialize DHT11: {e}")
-        src.dht_reader = None
-
-    state["status"] = "hardware_initialized"
-    return state
-
 def execute_hardware(state: AgentState) -> AgentState:
     """
     執行硬件動作
@@ -236,7 +205,6 @@ def update_history(state: AgentState) -> AgentState:
 
 def check_end(state: AgentState) -> AgentState:
     """檢查是否結束對話的節點"""
-    text = state.get("input_text", "").lower()
 
     # 檢查用戶是否說了結束詞
     text = state.get("input_text", "").lower()
@@ -262,7 +230,9 @@ def should_end(state: AgentState) -> str:
     """條件函式：決定是否結束"""
     if state.get("status") in ["user_end", "too_many_failures"]:
         return "end"
-    return "continue"
+    if state.get("status") == "continue": # 成功執行完畢
+        return "end" # → 自動回到待機
+    return "continue" # needs_clarification → 再錄一次（問「請再說一次」）
 
 def should_execute(state: AgentState) -> str:
     """條件函式：決定是否執行硬體"""
@@ -322,19 +292,6 @@ graph.add_conditional_edges(
 graph.add_edge("execute_hardware", "update_history")
 graph.add_edge("update_history", "check_end")
 graph.add_conditional_edges("check_end", should_end, {"end": END, "continue": "clarify_or_continue"})
-graph.add_edge("clarify_or_continue", "record_analyze")
-
-# 條件邊緣：根據 check_end 的結果
-graph.add_conditional_edges(
-    "check_end",
-    should_end,  # 使用新的條件函式
-    {
-        "end": END,
-        "continue": "clarify_or_continue"
-    }
-)
-
-# 從 clarify_or_continue 回到 record，形成循環
 graph.add_edge("clarify_or_continue", "record_analyze")
 
 # 編譯圖

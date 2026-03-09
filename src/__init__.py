@@ -10,6 +10,7 @@ load_dotenv()
 
 # 全局變數
 disp = None
+dht_reader = None
 
 # 檢查並設定 Gemini API Key
 def setup_gemini_api():
@@ -40,7 +41,7 @@ def setup_gemini_api():
 
 def initialize_hardware():
     """初始化所有硬件"""
-    global disp
+    global disp, dht_reader
     try:
         # 7段顯示器
         disp = SevenSegDisplay()
@@ -53,8 +54,19 @@ def initialize_hardware():
         # LED
         led_setup()
 
+        # DHT11 溫濕度感測器
+        try:
+            from src.nodes.langgraph_split_files.hardware_dht11 import DHT11Reader
+            dht_reader = DHT11Reader()
+            dht_reader.start()
+            print("[INFO] DHT11 initialized and started")
+        except Exception as e:
+            print(f"[WARNING] Failed to initialize DHT11: {e}")
+            dht_reader = None
+
         print("✓ 硬件初始化完成")
         return True
+    
     except Exception as e:
         print(f"✗ 硬件初始化失敗: {e}")
         return False
@@ -65,6 +77,8 @@ def cleanup_hardware():
     try:
         if disp:
             disp.cleanup()
+        if dht_reader:
+            dht_reader.stop()
         led_cleanup()
         fan_cleanup()
         print("✓ 硬件清理完成")
