@@ -1,8 +1,8 @@
 import os
 import sys
 from dotenv import load_dotenv
-from src.nodes.langgraph_split_files.hardware_led import setup as led_setup, cleanup as led_cleanup
-from src.nodes.langgraph_split_files.hardware_fan import setup as fan_setup, cleanup as fan_cleanup
+from src.nodes.langgraph_split_files.hardware_led import LedController
+from src.nodes.langgraph_split_files.hardware_fan import FanController
 from src.nodes.langgraph_split_files.hardware_7seg import SevenSegDisplay
 
 # 載入環境變數
@@ -11,6 +11,8 @@ load_dotenv()
 # 全局變數
 disp = None
 dht_reader = None
+fan = None
+led = None
 
 # 檢查並設定 Gemini API Key
 def setup_gemini_api():
@@ -41,7 +43,7 @@ def setup_gemini_api():
 
 def initialize_hardware():
     """初始化所有硬件"""
-    global disp, dht_reader
+    global disp, dht_reader, fan, led
     try:
         # 7段顯示器
         disp = SevenSegDisplay()
@@ -49,10 +51,12 @@ def initialize_hardware():
         disp.start()
 
         # 風扇
-        fan_setup()
+        fan = FanController()
+        fan.setup()
 
         # LED
-        led_setup()
+        led = LedController()
+        led.setup()
 
         # DHT11 溫濕度感測器
         try:
@@ -79,8 +83,10 @@ def cleanup_hardware():
             disp.cleanup()
         if dht_reader:
             dht_reader.stop()
-        led_cleanup()
-        fan_cleanup()
+        if led:
+            led.cleanup()
+        if fan:
+            fan.cleanup()
         print("✓ 硬件清理完成")
     except Exception as e:
         print(f"✗ 硬件清理錯誤: {e}")

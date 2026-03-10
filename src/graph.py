@@ -12,8 +12,6 @@ from src.nodes.langgraph_split_files.actions_schema import ActionDict
 from src.nodes.langgraph_split_files.parser_fastpath import parse_fastpath
 from src.nodes.langgraph_split_files.parser_gemini import parse_with_gemini
 from src.nodes.langgraph_split_files.validator import validate_actions
-from src.nodes.langgraph_split_files.hardware_led import set_led
-from src.nodes.langgraph_split_files.hardware_fan import set_fan
 
 # langgraph modules
 from typing import TypedDict, List, Dict, Any, Optional # Imports all the data types we need
@@ -158,10 +156,16 @@ def execute_hardware(state: AgentState) -> AgentState:
                     errors.append("七段顯示器尚未初始化")
 
             elif action["type"] == "FAN":
-                set_fan(action["state"])
+                if hasattr(src, 'fan') and src.fan:
+                    src.fan.set_fan(action["state"])
+                else:
+                    errors.append("風扇控制器尚未初始化")
 
             elif action["type"] == "LED":
-                set_led(action["location"], action["state"])
+                if hasattr(src, 'led') and src.led:
+                    src.led.set_led(action["location"], action["state"])
+                else:
+                    errors.append("LED 控制器尚未初始化")
 
         except Exception as e:
             errors.append(str(e))
@@ -172,10 +176,12 @@ def execute_hardware(state: AgentState) -> AgentState:
         hyst = 2  # 溫度滯後值
         
         if ambient_temp >= (setpoint_temp + hyst):
-            set_fan("on")
+            if hasattr(src, 'fan') and src.fan:
+                src.fan.set_fan("on")
     
         elif ambient_temp <= (setpoint_temp - hyst):
-            set_fan("off")
+            if hasattr(src, 'fan') and src.fan:
+                src.fan.set_fan("off")
 
     if errors:
         state["status"] = "hardware_error"
