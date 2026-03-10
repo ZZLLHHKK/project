@@ -27,11 +27,11 @@ class AgentState(TypedDict):
     memory_rules: Dict[str, str]       # 記憶規則（從 parser_fastpath）
     history: List[Dict[str, Any]]      # 對話歷史
     last_input_time: float             # 最後輸入時間戳
-    needs_clarification: bool = False  # 是否需要澄清
-    clarification_message: Optional[str] = None  # 澄清訊息
+    needs_clarification: bool  # 是否需要澄清
+    clarification_message: Optional[str]  # 澄清訊息
     llm_reply: Optional[str] = None     # Gemini 原始回覆（JSON 字串）
     parse_source: Optional[str] = None  # 解析來源: fastpath/gemini/none
-    failure_count: int = 0              # 連續失敗次數
+    failure_count: int              # 連續失敗次數
     error_message: Optional[str] = None # 錯誤訊息
     
     # 新增溫度相關字段

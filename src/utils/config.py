@@ -51,7 +51,7 @@ SRC_DIR = PROJECT_ROOT / "src"
 # whisper model settings (faster-whisper)
 # Use Hugging Face repo names for CTranslate2 models
 FASTER_WHISPER_MODEL = "base" 
-MODELS_DIR = FASTER_WHISPER_MODEL
+WHISPER_MODEL_NAME = FASTER_WHISPER_MODEL
 
 # 錄音配置 
 DEVICE_PORT = "plughw:3,0"           # 樹莓派錄音接口 (在終端機 arecord -l)

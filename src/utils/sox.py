@@ -8,7 +8,7 @@ import threading
 import itertools
 from pathlib import Path
 from typing import Optional
-from src.utils.config import PROJECT_ROOT, DATA_DIR, RECORDINGS_DIR, INPUT_FILE, DEVICE_PORT, MODELS_DIR
+from src.utils.config import PROJECT_ROOT, DATA_DIR, RECORDINGS_DIR, INPUT_FILE, DEVICE_PORT, WHISPER_MODEL_NAME
 
 RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -134,7 +134,7 @@ def stt_pipeline(
 
     try:
         text = transcribe_latest_wav(
-            model_name=model_name or MODELS_DIR,
+            model_name=model_name or WHISPER_MODEL_NAME,
             language=language,
         )
 
