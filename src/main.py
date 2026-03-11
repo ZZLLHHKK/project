@@ -38,7 +38,6 @@ def main():
             "clarification_message": None,
             "llm_reply": None,
             "parse_source": None,
-            "failure_count": 0,    # 這裡歸零，後面才會累加
             "error_message": None,
             "ambient_temp": None,
             "setpoint_temp": 25,   # 預設溫度

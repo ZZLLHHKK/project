@@ -29,7 +29,6 @@ class AgentState(TypedDict):
     clarification_message: Optional[str]  # 澄清訊息
     llm_reply: Optional[str] = None     # Gemini 原始回覆（JSON 字串）
     parse_source: Optional[str] = None  # 解析來源: fastpath/gemini/none
-    failure_count: int              # 連續失敗次數
     error_message: Optional[str] = None # 錯誤訊息
     
     # 新增溫度相關字段
@@ -153,7 +152,6 @@ def validate_actions_node(state: AgentState) -> AgentState:
         state["validated_actions"] = []
         state["needs_clarification"] = True
         state["status"] = "needs_clarification"
-        state["failure_count"] += 1
         return state
 
     validated = validate_actions(state["raw_actions"]) #可能為空列表，需返回錄音階段
@@ -162,12 +160,10 @@ def validate_actions_node(state: AgentState) -> AgentState:
     if not validated:  # 如果沒有有效動作
         state["needs_clarification"] = True
         state["status"] = "needs_clarification"
-        state["failure_count"] += 1
         if not state.get("clarification_message"):
             state["clarification_message"] = "指令無法執行，可以再說一次嗎？"
     else:
         state["status"] = "validated"
-        state["failure_count"] = 0
     
     return state
 
@@ -250,37 +246,6 @@ def update_history(state: AgentState) -> AgentState:
     state["status"] = "history_updated"
     return state
 
-def check_end(state: AgentState) -> AgentState:
-    """檢查是否結束對話的節點"""
-
-    # 檢查用戶是否說了結束詞
-    text = state.get("input_text", "").lower()
-    if any(word in text for word in ["結束", "停止", "再見", "end", "stop", "bye"]):
-        speak("好的，掰掰")
-        state["status"] = "user_end"
-        return state
-    
-    # 連續失敗保護
-    if state.get("failure_count", 0) >= 3:
-        state["status"] = "too_many_failures"
-        return state
-    
-    # 檢查是否需要澄清
-    if state.get("needs_clarification"):
-        state["status"] = "needs_clarification"
-    else:
-        state["status"] = "continue"
-
-    return state
-
-def should_end(state: AgentState) -> str:
-    """條件函式：決定是否結束"""
-    if state.get("status") in ["user_end", "too_many_failures"]:
-        return "end"
-    if state.get("status") == "continue": # 成功執行完畢
-        return "end" # → 自動回到待機
-    return "continue" # needs_clarification → 再錄一次（問「請再說一次」）
-
 def should_execute(state: AgentState) -> str:
     """條件函式：決定是否執行硬體"""
     if state.get("status") == "query_answered":
@@ -321,7 +286,6 @@ graph.add_node("parse_actions", parse_actions)
 graph.add_node("validate_actions", validate_actions_node)
 graph.add_node("execute_hardware", execute_hardware)
 graph.add_node("update_history", update_history)
-graph.add_node("check_end", check_end)
 graph.add_node("clarify_or_continue", clarify_or_continue)
 
 # 設定起始點
@@ -340,8 +304,7 @@ graph.add_conditional_edges(
     }
 )
 graph.add_edge("execute_hardware", "update_history")
-graph.add_edge("update_history", "check_end")
-graph.add_conditional_edges("check_end", should_end, {"end": END, "continue": "clarify_or_continue"})
+graph.add_edge("update_history", END)
 graph.add_edge("clarify_or_continue", "record_analyze")
 
 # 編譯圖
