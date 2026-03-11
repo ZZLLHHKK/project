@@ -5,7 +5,7 @@ import os
 from typing import Optional
 from faster_whisper import WhisperModel
 from dotenv import load_dotenv
-from src.utils.config import PROJECT_ROOT, MODELS_DIR
+from src.utils.config import PROJECT_ROOT, WHISPER_MODEL_NAME
 
 load_dotenv()  # 載入 .env 的 HF_TOKEN（避免下載警告）
 
@@ -57,7 +57,7 @@ def transcribe_latest_wav(
 
     # 預設使用設定檔中的模型（Hugging Face repo 名稱或本地路徑）
     if model_name is None:
-        model_name = MODELS_DIR
+        model_name = WHISPER_MODEL_NAME
 
     # 支援模型名稱或本地路徑
     if not os.path.isdir(model_name):

@@ -33,18 +33,30 @@ RECORDINGS_DIR = DATA_DIR / "recordings"
 LONG_TERM = DATA_DIR / "memory" / "long_term.jsonl"
 SHORT_TERM = DATA_DIR / "memory" / "short_term.json"  
 
+# --- 提示音效 (Earcons) 設定 ---
+AUDIO_DIR = DATA_DIR / "audio"
+SOUND_GET = AUDIO_DIR / "dong_ding.wav"
+
+# --- TTS (Piper 語音引擎) 設定 ---
+PIPER_DIR = PROJECT_ROOT / "piper"  
+PIPER_EXE = PIPER_DIR / "piper"
+
+# 語音模型統一下載到 models 資料夾
+MODELS_DIR = DATA_DIR / "models"
+TTS_MODEL = MODELS_DIR / "voice.onnx"
+
 HISTORY_KEEP = 5
 
 # whisper model settings (faster-whisper)
 # Use Hugging Face repo names for CTranslate2 models
 FASTER_WHISPER_MODEL = "base" 
-MODELS_DIR = FASTER_WHISPER_MODEL
+WHISPER_MODEL_NAME = FASTER_WHISPER_MODEL
 
 # 錄音配置 
 DEVICE_PORT = "plughw:3,0"           # 樹莓派錄音接口 (在終端機 arecord -l)
 RECORDING_DURATION = 5               # 錄音秒數
 LANGUAGE = "auto"                    # whisper 語言代碼 (中英適用)
-GEMINI_MODEL = "gemini-flash-latest"
+GEMINI_MODEL = "gemini-1.5-flash-latest"
 
 # -------------------------
 # Temperature constraints
@@ -115,7 +127,7 @@ LED_LOCATION_TO_PIN = {
 # -------------------------
 # Enable/disable by environment variable DHT11_ENABLED=1/0
 DHT11_ENABLED = os.getenv("DHT11_ENABLED", "1").strip() not in ("0", "false", "False", "OFF", "off")
-DHT11_PIN = int(os.getenv("DHT11_PIN", "17"))  # BCM pin number (default GPIO17)
+DHT11_PIN = int(os.getenv("DHT11_PIN", "25"))  # BCM pin number (default GPIO17)
 # Read interval (seconds). DHT11 is slow; 2s is safe.
 DHT11_READ_INTERVAL_SEC = float(os.getenv("DHT11_READ_INTERVAL_SEC", "2.0"))
 

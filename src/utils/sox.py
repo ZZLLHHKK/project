@@ -1,0 +1,160 @@
+# arecord的另一個備用方案 提供自動偵測靜音 尚未測試 2026/2/3
+# src/utils/audio.py
+import os
+import subprocess
+import time
+import sys
+import threading
+import itertools
+from pathlib import Path
+from typing import Optional
+from src.utils.config import PROJECT_ROOT, DATA_DIR, RECORDINGS_DIR, INPUT_FILE, DEVICE_PORT, WHISPER_MODEL_NAME
+
+RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
+
+# silence_threshold 的建議值：
+# 環境很吵（風扇、空調聲）→ 調高到 3%～5%（避免背景噪音被當成說話）
+# 環境很安靜 → 保持 1% 或調低到 0.5%（更精準偵測說話結束）
+# 太高（>10%）→ 可能連說話聲都被當靜音，錄音直接結束
+# 太低（<0.5%）→ 很難偵測到靜音，會一直錄到手動停止
+
+def _thinking_animation(stop_event):
+    """背景播放『思考中』動畫的函式"""
+
+    spinner = itertools.cycle(['.  ', '.. ', '...']) 
+    
+    while not stop_event.is_set():
+        # \r 代表「回到這一行的最前面」，這樣就能覆蓋舊的文字產生動畫感
+        sys.stdout.write(f'\r正在思考與辨識中{next(spinner)}')
+        sys.stdout.flush() # 強制刷新畫面
+        time.sleep(0.3)    # 控制動畫的速度
+        
+    # 動畫結束時，清空這一行，準備印出辨識結果
+    sys.stdout.write('\r' + ' ' * 30 + '\r')
+    sys.stdout.flush()
+
+def record_with_sox(
+    output_path: Path = RECORDINGS_DIR / "latest.wav",
+    silence_duration: float = 1.5,      # 靜音持續多久就停止（秒）
+    silence_threshold: float = 5.0,     # 靜音門檻（音量百分比，1% = 很安靜）
+    sample_rate: int = 16000,
+    channels: int = 1,
+    device: str = DEVICE_PORT           # 從 config 來的麥克風裝置
+) -> str:
+    """
+    用 SoX 錄音，直到偵測到 silence_duration 秒的靜音才停止
+    返回錄好的 WAV 檔案路徑，若失敗返回空字串
+    """
+    # 確保輸出目錄存在
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # SoX 指令：錄音 + 靜音偵測
+    cmd = [
+        "rec",                              # SoX 的錄音指令（等同 sox -t alsa ...）
+        "-t", "alsa", device,               # 輸入裝置
+        "-r", str(sample_rate),             # 取樣率 16kHz
+        "-c", str(channels),                # 單聲道
+        "-b", "16",                         # 16-bit
+        "-e", "signed-integer",             # 格式
+        str(output_path),                   # 輸出檔案
+        "silence", "1", "0.1", f"{silence_threshold}%",   # 開始偵測：0.1秒內低於門檻就開始計時
+        "1", str(silence_duration), f"{silence_threshold}%"  # 持續 silence_duration 秒靜音就停止
+    ]
+
+    print(f"開始錄音... (說話結束後靜音 {silence_duration} 秒自動停止，裝置：{device})")
+
+    try:
+        # 執行 SoX 錄音（會阻塞直到靜音停止）
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        if output_path.exists() and output_path.stat().st_size > 1000:  # 確認檔案存在且有內容
+            print(f"錄音完成，已儲存：{output_path}")
+            return str(output_path)
+        else:
+            print("錄音檔太小或不存在，視為失敗")
+            return ""
+    except subprocess.CalledProcessError as e:
+        print(f"SoX 錄音失敗：{e.stderr}")
+        if output_path.exists():
+            output_path.unlink()  # 刪除壞檔
+        return ""
+    except FileNotFoundError:
+        print("SoX 未安裝，請執行：sudo apt install sox libsox-fmt-all")
+        return ""
+    
+# analyze part
+from src.utils.whisper_local import transcribe_latest_wav
+from src.utils.file_io import write_text_file  
+from src.utils.config import SOUND_GET
+
+
+def play_notification(wav_path: Path):
+    """小工具：播放提示音效"""
+    if wav_path.exists():
+        # -q 代表靜音模式，避免在終端機噴一堆播放資訊
+        subprocess.run(["aplay", "-q", str(wav_path)], check=False)
+    else:
+        print(f"[警告] 找不到音效檔: {wav_path}")
+
+
+# 完整語音轉文字流程：
+def stt_pipeline(
+    silence_duration: float = 1.5, # 停頓 1.5 秒結束
+    silence_threshold: float = 5.0, # 靜音門檻 (如果發現太容易斷掉，可以調大到 10.0 或 20.0)
+    device: str = DEVICE_PORT,
+    model_name: Optional[str] = None,
+    language: str = "auto"
+) -> str:
+    """
+    完整語音轉文字流程：
+    1. 錄音 → latest.wav
+    2. faster-whisper 轉錄
+    3. 寫入 input.txt(覆蓋)
+    返回辨識文字
+    """
+    print(f"\n 請開始說話... (停頓 {silence_duration} 秒自動結束)")
+
+    # 步驟1：錄音（會覆蓋 latest.wav）
+    wav_path = record_with_sox(
+        silence_duration=silence_duration,
+        silence_threshold=silence_threshold,
+        device=device
+    )
+    if not wav_path:
+        #print("錄音失敗，無法繼續轉錄")
+        return ""
+
+    # --- 👇錄音一結束，馬上播放「咚」👇 ---
+    play_notification(SOUND_GET)
+
+    # 步驟2：轉錄
+    # 啟動動畫背景小精靈
+    stop_event = threading.Event()
+    spinner_thread = threading.Thread(target=_thinking_animation, args=(stop_event,))
+    spinner_thread.start()
+
+    try:
+        text = transcribe_latest_wav(
+            model_name=model_name or WHISPER_MODEL_NAME,
+            language=language,
+        )
+
+        stop_event.set()
+        spinner_thread.join()
+
+        text = text.strip()
+        if not text or text == "[無辨識結果]":
+            return ""
+        
+        # 印出漂亮的使用者輸入提示
+        print(f"👤 [你說]: {text}")
+
+        # 步驟3：寫入 input.txt
+        write_text_file(INPUT_FILE, text)
+    
+        return text
+
+    except Exception as e:
+        stop_event.set()
+        spinner_thread.join()
+        print(f"轉錄階段失敗：{str(e)}")
+        return ""

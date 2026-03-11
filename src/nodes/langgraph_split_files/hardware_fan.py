@@ -2,9 +2,10 @@
 Fan relay executor.
 
 LangGraph node usage:
-- setup()
-- set_fan("on") / set_fan("off")
-- cleanup()
+    fan = FanController()
+    fan.setup()
+    fan.set_fan("on")
+    fan.cleanup()
 """
 from __future__ import annotations
 
@@ -22,27 +23,29 @@ except Exception:  # pragma: no cover
         def cleanup(self): pass
     GPIO = _MockGPIO()  # type: ignore
 
-def setup() -> None:
-    GPIO.setwarnings(False)
-    GPIO.setmode(GPIO.BCM)
-    GPIO.setup(config.RELAY_FAN, GPIO.OUT)
-    # OFF by default
-    GPIO.output(config.RELAY_FAN, config.RELAY_OFF)
 
-def set_fan(state: str) -> None:
-    st = (state or "").strip().lower()
-    if st == "on":
-        GPIO.output(config.RELAY_FAN, config.RELAY_ON)
-    elif st == "off":
+class FanController:
+    def setup(self) -> None:
+        GPIO.setwarnings(False)
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setup(config.RELAY_FAN, GPIO.OUT)
+        # OFF by default
         GPIO.output(config.RELAY_FAN, config.RELAY_OFF)
-    else:
-        raise ValueError(f"Invalid fan state: {state}")
 
-def cleanup() -> None:
-    try:
-        set_fan("off")
-    finally:
+    def set_fan(self, state: str) -> None:
+        st = (state or "").strip().lower()
+        if st == "on":
+            GPIO.output(config.RELAY_FAN, config.RELAY_ON)
+        elif st == "off":
+            GPIO.output(config.RELAY_FAN, config.RELAY_OFF)
+        else:
+            raise ValueError(f"Invalid fan state: {state}")
+
+    def cleanup(self) -> None:
         try:
-            GPIO.cleanup()
-        except Exception:
-            pass
+            self.set_fan("off")
+        finally:
+            try:
+                GPIO.cleanup()
+            except Exception:
+                pass
