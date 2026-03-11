@@ -36,6 +36,11 @@ class AgentState(TypedDict):
     ambient_temp: Optional[int] = None  # 環境溫度
     setpoint_temp: Optional[int] = 25   # 目標溫度
     auto_cool_enabled: bool = False     # 是否啟用自動冷卻
+    
+    # 設備狀態追蹤
+    fan_state: str                      # "on" | "off"
+    led_states: Dict[str, str]          # {"KITCHEN": "off", "LIVING": "off", "GUEST": "off"}
+    ambient_humidity: Optional[int] = None  # 環境濕度
 '''
 def record(state: AgentState) -> AgentState:
     """樹莓派的錄音節點"""
@@ -56,6 +61,9 @@ def record_analyze(state: AgentState) -> AgentState:
     if hasattr(src, 'dht_reader') and src.dht_reader:
         ambient_temp = src.dht_reader.get_temp_int()
         state["ambient_temp"] = ambient_temp
+        humidity = src.dht_reader.get_humidity()
+        if humidity is not None:
+            state["ambient_humidity"] = humidity
 
     if text and text.strip():
         cleaned_text = text.strip()
@@ -92,27 +100,54 @@ def parse_actions(state: AgentState) -> AgentState:
 
     else:
         current_temp = state.get("setpoint_temp", 25)
+        fan_state = state.get("fan_state", "off")
+        led_states = state.get("led_states", {"KITCHEN": "off", "LIVING": "off", "GUEST": "off"})
+        ambient_humidity = state.get("ambient_humidity")
 
-        actions, llm_reply = parse_with_gemini(
+        actions, llm_reply, intent = parse_with_gemini(
             text, return_reply=True, 
             current_temp=current_temp, 
-            ambient_temp=ambient_temp # 傳遞環境溫度
+            ambient_temp=ambient_temp,
+            fan_state=fan_state,
+            led_states=led_states,
+            ambient_humidity=ambient_humidity
         )
         state["llm_reply"] = llm_reply
         state["parse_source"] = "gemini"
-        if actions:
+
+        if intent == "query":
+            # 查詢型：空 actions 是正常的，直接播放回覆
+            state["raw_actions"] = []
+            state["status"] = "query_answered"
+            if llm_reply:
+                speak(llm_reply)
+        elif actions:
             state["raw_actions"] = actions
             state["status"] = "gemini_parsed"
+            if llm_reply:
+                speak(llm_reply)
+        elif intent == "unclear":
+            # 語意不明確，Gemini 的反問留給 clarify_or_continue 播放
+            state["raw_actions"] = []
+            state["status"] = "needs_clarification"
+            state["needs_clarification"] = True
+            if llm_reply:
+                state["clarification_message"] = llm_reply
         else:
             state["raw_actions"] = []
             state["status"] = "parse_failed"
-        if llm_reply:
-            speak(llm_reply)
+            if llm_reply:
+                state["clarification_message"] = llm_reply
 
     return state
 
 def validate_actions_node(state: AgentState) -> AgentState:
     """驗證動作合法性"""
+
+    # 查詢型不需要驗證，直接通過
+    if state.get("status") == "query_answered":
+        state["validated_actions"] = []
+        return state
 
     if state.get("status") in ["parse_failed", "analyze_error"]:
         state["validated_actions"] = []
@@ -128,6 +163,8 @@ def validate_actions_node(state: AgentState) -> AgentState:
         state["needs_clarification"] = True
         state["status"] = "needs_clarification"
         state["failure_count"] += 1
+        if not state.get("clarification_message"):
+            state["clarification_message"] = "指令無法執行，可以再說一次嗎？"
     else:
         state["status"] = "validated"
         state["failure_count"] = 0
@@ -158,12 +195,14 @@ def execute_hardware(state: AgentState) -> AgentState:
             elif action["type"] == "FAN":
                 if hasattr(src, 'fan') and src.fan:
                     src.fan.set_fan(action["state"])
+                    state["fan_state"] = action["state"]
                 else:
                     errors.append("風扇控制器尚未初始化")
 
             elif action["type"] == "LED":
                 if hasattr(src, 'led') and src.led:
                     src.led.set_led(action["location"], action["state"])
+                    state["led_states"][action["location"]] = action["state"]
                 else:
                     errors.append("LED 控制器尚未初始化")
 
@@ -178,10 +217,12 @@ def execute_hardware(state: AgentState) -> AgentState:
         if ambient_temp >= (setpoint_temp + hyst):
             if hasattr(src, 'fan') and src.fan:
                 src.fan.set_fan("on")
+                state["fan_state"] = "on"
     
         elif ambient_temp <= (setpoint_temp - hyst):
             if hasattr(src, 'fan') and src.fan:
                 src.fan.set_fan("off")
+                state["fan_state"] = "off"
 
     if errors:
         state["status"] = "hardware_error"
@@ -242,6 +283,8 @@ def should_end(state: AgentState) -> str:
 
 def should_execute(state: AgentState) -> str:
     """條件函式：決定是否執行硬體"""
+    if state.get("status") == "query_answered":
+        return "query"
     if state.get("needs_clarification", False):
         return "clarify"
     return "execute"
@@ -292,7 +335,8 @@ graph.add_conditional_edges(
     should_execute,
     {
         "execute": "execute_hardware",
-        "clarify": "clarify_or_continue"
+        "clarify": "clarify_or_continue",
+        "query": "update_history"
     }
 )
 graph.add_edge("execute_hardware", "update_history")

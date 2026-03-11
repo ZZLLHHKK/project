@@ -42,7 +42,10 @@ def main():
             "error_message": None,
             "ambient_temp": None,
             "setpoint_temp": 25,   # 預設溫度
-            "auto_cool_enabled": False
+            "auto_cool_enabled": False,
+            "fan_state": "off",
+            "led_states": {"KITCHEN": "off", "LIVING": "off", "GUEST": "off"},
+            "ambient_humidity": None
         }
 
         while True:
@@ -58,7 +61,15 @@ def main():
 
             # 運行 LangGraph 流程
             result = app.invoke(initial_state)
-            
+
+            # 保留設備狀態到下一輪
+            initial_state["setpoint_temp"] = result.get("setpoint_temp", 25)
+            initial_state["auto_cool_enabled"] = result.get("auto_cool_enabled", False)
+            initial_state["ambient_temp"] = result.get("ambient_temp")
+            initial_state["fan_state"] = result.get("fan_state", "off")
+            initial_state["led_states"] = result.get("led_states", {"KITCHEN": "off", "LIVING": "off", "GUEST": "off"})
+            initial_state["ambient_humidity"] = result.get("ambient_humidity")
+
             print(f"處理狀態: {result.get('status', 'unknown')}")
 
             if result.get("llm_reply"):
