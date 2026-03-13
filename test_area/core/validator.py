@@ -6,8 +6,9 @@ import math
 import src.utils.config as config
 from src.nodes.langgraph_split_files.actions_schema import ActionDict
 
-class ActionValidator:
-	@staticmethod
+class ActionValidator:	
+	
+    @staticmethod
 	def _to_int_round_half_up(x: float) -> int:
 		return int(math.floor(x + 0.5))
 
