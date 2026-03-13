@@ -105,8 +105,12 @@ class SmartHomeAgent:
 		decision = self.router.route(clean_input)
 		self.state.set_state(
 			conversation_active=True,
-			last_user_input=clean_input,
+			input_text=clean_input,
 			last_intent=decision.intent.value,
+			status="start",
+			needs_clarification=False,
+			ambient_temp=ambient_temp,
+			setpoint_temp=current_temp if current_temp is not None else 25,
 		)
 
 		# System commands can be handled directly without parser/llm.
@@ -127,16 +131,24 @@ class SmartHomeAgent:
 			self.action_executor(actions)
 			reply = parser_reply or "好的，已為你處理。"
 
+			# 更新狀態欄位
+			self.state.set_state(
+				raw_actions=actions,
+				validated_actions=actions,  # 若有 validator 可用驗證後結果
+				status="executed",
+				llm_reply=reply,
+			)
+
 			# Update in-memory device states from parsed actions.
 			for action in actions:
 				action_type = str(action.get("type", ""))
 				if action_type == "SET_TEMP":
-					self.state.update_device_state("temperature", action.get("value"))
+					self.state.setpoint_temp = action.get("value")
 				elif action_type == "FAN":
-					self.state.update_device_state("fan", action.get("state"))
+					self.state.fan_state = action.get("state")
 				elif action_type == "LED":
-					loc = str(action.get("location", "UNKNOWN")).lower()
-					self.state.update_device_state(f"light_{loc}", action.get("state"))
+					loc = str(action.get("location", "UNKNOWN")).upper()
+					self.state.led_states[loc] = action.get("state")
 
 			result = AgentResult(
 				reply=reply,
@@ -149,6 +161,10 @@ class SmartHomeAgent:
 
 		memory_context = self.memory.get_context(limit=5)
 		llm_reply = self.llm_responder(clean_input, memory_context)
+		self.state.set_state(
+			status="llm_reply",
+			llm_reply=llm_reply,
+		)
 		result = AgentResult(
 			reply=llm_reply,
 			actions=[],

@@ -8,18 +8,53 @@ class StateManager:
         """初始化變數內容(變數未來可擴充)"""
         self.conversation_active: bool = False
         self.awaiting_confirmation: bool = False
-        self.last_user_input: str | None = None
         self.last_intent: str | None = None
         self.device_states: dict[str, Any] = {}
+        self.input_text: str = ""
+        self.raw_actions: list = []
+        self.validated_actions: list = []
+        self.status: str = "start"
+        self.memory_rules: dict = {}
+        self.history: list = []
+        self.last_input_time: float = 0.0
+        self.needs_clarification: bool = False
+        self.clarification_message: str | None = None
+        self.llm_reply: str | None = None
+        self.parse_source: str | None = None
+        self.error_message: str | None = None
+        self.ambient_temp: int | None = None
+        self.setpoint_temp: int = 25
+        self.auto_cool_enabled: bool = False
+        self.fan_state: str = "off"
+        self.led_states: dict = {"KITCHEN": "off", "LIVING": "off", "GUEST": "off"}
+        self.ambient_humidity: int | None = None
 
     def get_state(self) -> dict[str, Any]:
         # 回傳快照，避免外部直接修改內部狀態
         return {
             "conversation_active": self.conversation_active,
             "awaiting_confirmation": self.awaiting_confirmation,
-            "last_user_input": self.last_user_input,
+            # ...existing code...
             "last_intent": self.last_intent,
             "device_states": dict(self.device_states),
+            "input_text": self.input_text,
+            "raw_actions": list(self.raw_actions),
+            "validated_actions": list(self.validated_actions),
+            "status": self.status,
+            "memory_rules": dict(self.memory_rules),
+            "history": list(self.history),
+            "last_input_time": self.last_input_time,
+            "needs_clarification": self.needs_clarification,
+            "clarification_message": self.clarification_message,
+            "llm_reply": self.llm_reply,
+            "parse_source": self.parse_source,
+            "error_message": self.error_message,
+            "ambient_temp": self.ambient_temp,
+            "setpoint_temp": self.setpoint_temp,
+            "auto_cool_enabled": self.auto_cool_enabled,
+            "fan_state": self.fan_state,
+            "led_states": dict(self.led_states),
+            "ambient_humidity": self.ambient_humidity,
         }
     
     def set_state(self, **kwargs: Any) -> None:
@@ -32,7 +67,6 @@ class StateManager:
     def reset_conversation(self) -> None:
         self.conversation_active = False
         self.awaiting_confirmation = False
-        self.last_user_input = None
         self.last_intent = None
 
     def update_device_state(self, device_name: str, state: Any) -> None:

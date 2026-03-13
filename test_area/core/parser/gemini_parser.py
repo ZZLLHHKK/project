@@ -15,7 +15,7 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Callable, List, Optional, Tuple, Union
 
 from google import genai
 
@@ -80,6 +80,7 @@ class PromptContext:
     history_context: str
     current_temp: int
     ambient_temp: Optional[int]
+    ambient_humidity: Optional[int]
 
 
 class PromptBuilder:
@@ -105,36 +106,39 @@ class PromptBuilder:
         user_text: str,
         current_temp: Optional[int],
         ambient_temp: Optional[int],
+        ambient_humidity: Optional[int] = None,
     ) -> PromptContext:
         rewritten = self.memory_rule_applier(user_text)
         rules_context = self._bounded(self.rules_reader(config.RULES_FILE) or "")
         history_context = self._bounded(self.history_formatter() or "")
         cur = int(current_temp) if current_temp is not None else 25
         amb = int(ambient_temp) if ambient_temp is not None else None
+        hum = int(ambient_humidity) if ambient_humidity is not None else None
         return PromptContext(
             rewritten_text=rewritten,
             rules_context=rules_context,
             history_context=history_context,
             current_temp=cur,
             ambient_temp=amb,
+            ambient_humidity=hum,
         )
 
     def build_prompt(self, ctx: PromptContext) -> str:
-        return f"""
+            return f"""
 You are a smart-home command parser.
 You must output JSON ONLY.
 
 OUTPUT FORMAT (hard constraints):
 - Output must be exactly a single JSON object with two keys: "actions" and "reply".
 - "actions": A JSON array of action objects.
-  - type: one of ["SET_TEMP","FAN","LED"]
-  - For SET_TEMP: value (number)
-  - For FAN: state ("on"|"off"), optional duration (seconds integer)
-  - For LED: location ("KITCHEN"|"LIVING"|"GUEST"), state ("on"|"off"), optional duration (seconds integer)
+    - type: one of ["SET_TEMP","FAN","LED"]
+    - For SET_TEMP: value (number)
+    - For FAN: state ("on"|"off"), optional duration (seconds integer)
+    - For LED: location ("KITCHEN"|"LIVING"|"GUEST"), state ("on"|"off"), optional duration (seconds integer)
 - "reply": A natural, conversational response in Traditional Chinese (zh-TW).
-  - Act as a helpful assistant. (e.g., "好的，已經為您開啟客廳燈。")
-  - Use commas (，) and periods (。) properly for text-to-speech pauses.
-  - If a request violates constraints (e.g., temperature > {config.MAX_TEMP}), return empty actions [] and politely explain why in the reply.
+    - Act as a helpful assistant. (e.g., "好的，已經為您開啟客廳燈。")
+    - Use commas (，) and periods (。) properly for text-to-speech pauses.
+    - If a request violates constraints (e.g., temperature > {config.MAX_TEMP}), return empty actions [] and politely explain why in the reply.
 
 DEVICE MAPPING:
 - Kitchen light => LED location "KITCHEN"
@@ -146,7 +150,7 @@ DEVICE MAPPING:
 SYSTEM RULES:
 - Temperature unit is Celsius.
 - Absolute safety range: {config.MIN_TEMP} to {config.MAX_TEMP} inclusive.
-  If asked outside, clamp into range.
+    If asked outside, clamp into range.
 - Comfort range: {config.COMFORT_MIN} to {config.COMFORT_MAX}.
 - Ignore profanity/filled words; parse only the intent.
 - If the user mentions multiple devices, output multiple actions.
@@ -156,18 +160,19 @@ TEMPERATURE INTERPRETATION:
 1) If user explicitly specifies a number, use it (then clamp).
 2) If user is fuzzy (e.g., "comfortable"), choose a reasonable number within comfort range.
 3) If user is relative without a number:
-   - Use current temperature setting {ctx.current_temp}.
-   - Typical adjustments:
-     * "cold" => +2
-     * "hot" => -2
-     * "higher a bit" => +1
-     * "lower a bit" => -1
-   - Apply memory rules if they define custom meanings.
-   - Then clamp.
+     - Use current temperature setting {ctx.current_temp}.
+     - Typical adjustments:
+         * "cold" => +2
+         * "hot" => -2
+         * "higher a bit" => +1
+         * "lower a bit" => -1
+     - Apply memory rules if they define custom meanings.
+     - Then clamp.
 
 CONTEXT:
 - Current temperature setting is {ctx.current_temp} C.
 - Ambient temperature from sensor is {ctx.ambient_temp} C (if provided).
+- Ambient humidity from sensor is {ctx.ambient_humidity} % (if provided).
 - Memory rules (user preferences) to apply:
 {ctx.rules_context if ctx.rules_context else "(empty)"}
 
@@ -236,13 +241,14 @@ class GeminiParser:
         user_text: str,
         current_temp: Optional[int] = None,
         ambient_temp: Optional[int] = None,
+        ambient_humidity: Optional[int] = None,
         return_reply: bool = False,
     ) -> Union[List[ActionDict], Tuple[List[ActionDict], Optional[str]]]:
         """Return validated actions, with optional assistant reply."""
         if not user_text or not user_text.strip():
             return ([], None) if return_reply else []
 
-        ctx = self.prompt_builder.build_context(user_text, current_temp, ambient_temp)
+        ctx = self.prompt_builder.build_context(user_text, current_temp, ambient_temp, ambient_humidity)
         prompt = self.prompt_builder.build_prompt(ctx)
 
         try:
@@ -260,10 +266,12 @@ class GeminiParser:
 
 _DEFAULT_GEMINI_PARSER = GeminiParser()
 
+
 def parse_with_gemini(
     user_text: str,
     current_temp: Optional[int] = None,
     ambient_temp: Optional[int] = None,
+    ambient_humidity: Optional[int] = None,
     return_reply: bool = False
 ) -> Union[List[ActionDict], Tuple[List[ActionDict], Optional[str]]]:
     """Backward-compatible function wrapper."""
@@ -271,6 +279,7 @@ def parse_with_gemini(
         user_text=user_text,
         current_temp=current_temp,
         ambient_temp=ambient_temp,
+        ambient_humidity=ambient_humidity,
         return_reply=return_reply,
     )
 
