@@ -51,6 +51,22 @@ try:
 except Exception:
     _legacy = None
 
+if _BACKEND == "none":
+    class DHT11Reader:
+        def __init__(self, interval_sec: float = None):
+            pass
+        def start(self):
+            pass
+        def stop(self):
+            pass
+        def get_temp_c(self):
+            return 25.0
+        def get_temp_int(self):
+            return 25
+        def get_humidity(self):
+            return 60.0
+        def last_ok_age_sec(self):
+            return 0.0
 
 def _board_pin_from_bcm(bcm: int):
     """
