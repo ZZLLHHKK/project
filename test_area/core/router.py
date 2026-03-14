@@ -4,6 +4,24 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 
+SYSTEM_RESET_KEYWORDS: tuple[str, ...] = (
+    "重置",
+    "清除記憶",
+    "clear memory",
+    "reset",
+    "reset memory",
+    "重設記憶",
+    "清空記憶",
+)
+
+
+def is_system_reset_command(user_input: str) -> bool:
+    text = (user_input or "").strip().lower()
+    if not text:
+        return False
+    return any(keyword in text for keyword in SYSTEM_RESET_KEYWORDS)
+
+
 class Intent(StrEnum):
     """定義使用者意圖類型，未來可擴充更多類型。"""
     DEVICE_CONTROL = "DEVICE_CONTROL"
@@ -29,12 +47,25 @@ class IntentClassifier:
     """判斷使用者意圖，不負責流程分流。"""
 
     def __init__(self) -> None:
-        """初始化意圖關鍵字(未來可擴充更多意圖和關鍵字)。"""
+        """初始化意圖關鍵字(未來可擴充更多意圖和關鍵字以及補英文的Intent)。"""
         self.intent_keywords: dict[Intent, list[str]] = {
-            Intent.SYSTEM: ["重置", "清除記憶", "reset", "clear memory"],
-            Intent.DEVICE_CONTROL: ["開燈", "關燈", "開風扇", "關風扇", "調高", "調低", "溫度"],
-            Intent.QUERY: ["天氣", "時間", "幾點", "新聞", "查詢", "多少"],
-            Intent.CHAT: ["你好", "哈囉", "謝謝", "笑話", "聊聊"],
+            Intent.SYSTEM: list(SYSTEM_RESET_KEYWORDS),
+
+            Intent.QUERY: [
+                "天氣", "時間", "幾點", "新聞",
+                "查詢", "多少", "現在幾點",
+                "今天日期", "星期幾", "幾月幾號",
+                "氣溫", "濕度", "下雨",
+                "誰是", "什麼是", "為什麼", "怎麼",
+                "在哪裡", "多少錢"
+            ],
+
+            Intent.CHAT: [
+                "你好", "哈囉", "謝謝", "笑話", "聊聊",
+                "早安", "晚安", "嗨",
+                "最近好嗎", "你是誰", "你會做什麼",
+                "講個故事", "無聊", "陪我聊天"
+            ],
         }
 
     def classify(self, user_input: str) -> Intent:
@@ -68,12 +99,12 @@ class Router:
         return RouteDecision(route_type=route_type, intent=intent)
 
     def is_fast_command(self, user_input: str, intent: Intent | None = None) -> bool:
-        """判斷是否為快速指令，預設根據 intent 判斷，也可直接傳入 intent 參數。"""
+        """判斷是否為快速指令，目前僅保留系統控制指令。"""
         active_intent = intent or self.classifier.classify(user_input)
-        return active_intent in {Intent.DEVICE_CONTROL, Intent.SYSTEM}
+        return active_intent == Intent.SYSTEM
 
     def get_route_type(self, user_input: str, intent: Intent | None = None) -> RouteType:
-        """根據 intent 判斷 route_type，DEVICE_CONTROL 和 SYSTEM 類型會被視為 FAST_COMMAND，其他則為 LLM。"""
+        """根據 intent 判斷 route_type，目前僅 SYSTEM 類型視為 FAST_COMMAND。"""
         if self.is_fast_command(user_input=user_input, intent=intent):
             return RouteType.FAST_COMMAND
         return RouteType.LLM

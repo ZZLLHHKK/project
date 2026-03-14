@@ -12,12 +12,12 @@ if str(PROJECT_ROOT) not in sys.path:
 
 try:
 	from .memory_agent import MemoryAgent
-	from .router import Intent, RouteType, Router
+	from .router import Intent, RouteType, Router, is_system_reset_command
 	from .state_manager import StateManager
 	from .parser import DEFAULT_PARSER, ParserFacade
 except ImportError:
 	from test_area.core.memory_agent import MemoryAgent
-	from test_area.core.router import Intent, RouteType, Router
+	from test_area.core.router import Intent, RouteType, Router, is_system_reset_command
 	from test_area.core.state_manager import StateManager
 	from test_area.core.parser import DEFAULT_PARSER, ParserFacade
 
@@ -72,8 +72,7 @@ class SmartHomeAgent:
 		return f"我收到你的訊息：{user_input}。目前尚未接入正式 LLM 回覆模組。"
 
 	def _handle_system_intent(self, user_input: str) -> Optional[AgentResult]:
-		text = (user_input or "").strip().lower()
-		if "清除記憶" in text or "clear memory" in text or "reset" in text or "重置" in text:
+		if is_system_reset_command(user_input):
 			self.memory.clear_memory()
 			self.state.reset_conversation()
 			reply = "好的，已清除短期記憶並重置對話狀態。"
@@ -120,27 +119,37 @@ class SmartHomeAgent:
 				self._save_turn(clean_input, system_result.reply)
 				return system_result
 
-		if decision.route_type == RouteType.FAST_COMMAND:
-			parsed = self.parser.parse(
-				clean_input,
-				current_temp=current_temp,
-				ambient_temp=ambient_temp,
-				return_reply=True,
-			)
-			actions, parser_reply = parsed
-			self.action_executor(actions)
-			reply = parser_reply or "好的，已為你處理。"
-
-			# 更新狀態欄位
+		# Rule-teaching commands are handled by fastpath learner directly.
+		learned = self.parser.fastpath.learn_rule(clean_input)
+		if learned is not None:
+			reply = "好的，我已經記住這條規則。"
 			self.state.set_state(
-				raw_actions=actions,
-				validated_actions=actions,  # 若有 validator 可用驗證後結果
+				status="executed",
+				llm_reply=reply,
+			)
+			result = AgentResult(
+				reply=reply,
+				actions=[],
+				route_type=RouteType.FAST_COMMAND,
+				intent=Intent.SYSTEM,
+			)
+			self._save_turn(clean_input, result.reply)
+			return result
+
+		# Device-command extraction belongs to fastpath parser, not Router.
+		fast_actions = self.parser.fastpath.parse(clean_input)
+		if fast_actions:
+			self.action_executor(fast_actions)
+			reply = "好的，已為你處理。"
+
+			self.state.set_state(
+				raw_actions=fast_actions,
+				validated_actions=fast_actions,
 				status="executed",
 				llm_reply=reply,
 			)
 
-			# Update in-memory device states from parsed actions.
-			for action in actions:
+			for action in fast_actions:
 				action_type = str(action.get("type", ""))
 				if action_type == "SET_TEMP":
 					self.state.setpoint_temp = action.get("value")
@@ -152,9 +161,9 @@ class SmartHomeAgent:
 
 			result = AgentResult(
 				reply=reply,
-				actions=actions,
-				route_type=decision.route_type,
-				intent=decision.intent,
+				actions=fast_actions,
+				route_type=RouteType.FAST_COMMAND,
+				intent=Intent.DEVICE_CONTROL,
 			)
 			self._save_turn(clean_input, result.reply)
 			return result

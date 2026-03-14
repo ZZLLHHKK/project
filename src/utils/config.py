@@ -56,7 +56,7 @@ WHISPER_MODEL_NAME = FASTER_WHISPER_MODEL
 DEVICE_PORT = "plughw:3,0"           # 樹莓派錄音接口 (在終端機 arecord -l)
 RECORDING_DURATION = 5               # 錄音秒數
 LANGUAGE = "auto"                    # whisper 語言代碼 (中英適用)
-GEMINI_MODEL = "gemini-1.5-flash-latest"
+GEMINI_MODEL = "gemini-2.5-flash"
 
 # -------------------------
 # Temperature constraints

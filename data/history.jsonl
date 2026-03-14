@@ -1,5 +1,0 @@
-{"ts": 1772959641, "user": "幫我關風扇", "result": {"fastpath": true, "actions": [{"type": "FAN", "state": "off"}]}}
-{"ts": 1772959654, "user": "溫度調到 26 度", "result": {"fastpath": true, "actions": [{"type": "SET_TEMP", "value": 26}]}}
-{"ts": 1772959654, "user": "幫我關風扇", "result": {"fastpath": true, "actions": [{"type": "FAN", "state": "off"}]}}
-{"ts": 1772959857, "user": "溫度調到 26 度", "result": {"fastpath": true, "actions": [{"type": "SET_TEMP", "value": 26}]}}
-{"ts": 1772959857, "user": "幫我關風扇", "result": {"fastpath": true, "actions": [{"type": "FAN", "state": "off"}]}}
