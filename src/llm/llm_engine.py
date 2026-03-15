@@ -1,9 +1,11 @@
-# test_area/llm/llm_engine.py
+# src/llm/llm_engine.py
 
+import json
 import os
 import re
 from typing import Dict, Any
-from google import genai
+
+from src.core.validator import validate_actions
 
 class LLMEngine:
     """
@@ -14,6 +16,13 @@ class LLMEngine:
         self.prompt_builder = prompt_builder
         self._fence_re_1 = re.compile(r"^`{3}(?:json)?\s*", re.IGNORECASE)
         self._fence_re_2 = re.compile(r"\s*`{3}$", re.IGNORECASE)
+
+    def _try_load_dotenv(self) -> None:
+        try:
+            from dotenv import load_dotenv  # type: ignore
+        except Exception:
+            return
+        load_dotenv(override=False)
 
     def get_adapter_responder(self, state_manager):
         """
@@ -44,10 +53,13 @@ class LLMEngine:
         return responder
 
     def _get_gemini_client(self):
-        # ... (其餘程式碼保持不變)
-        api_key = os.environ.get('GEMINI_API_KEY')
+        self._try_load_dotenv()
+        api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
         if not api_key:
-            raise ValueError("系統找不到 GEMINI_API_KEY 環境變數！")
+            raise ValueError("系統找不到 GEMINI_API_KEY / GOOGLE_API_KEY 環境變數！")
+
+        from google import genai
+
         return genai.Client(api_key=api_key)
 
     def _strip_code_fences(self, s: str) -> str:
@@ -56,8 +68,25 @@ class LLMEngine:
         s = self._fence_re_2.sub("", s)
         return s.strip()
 
+    def _parse_response(self, response_text: str) -> Dict[str, Any]:
+        raw = self._strip_code_fences(response_text)
+        try:
+            data = json.loads(raw)
+        except Exception:
+            return {"actions": [], "reply": "抱歉，可以請您再說一次嗎？", "intent": "json_parse_failed"}
+
+        if not isinstance(data, dict):
+            return {"actions": [], "reply": "解析格式錯誤。", "intent": "payload_not_object"}
+
+        raw_actions = data.get("actions", [])
+        actions = [dict(a) for a in raw_actions if isinstance(a, dict)] if isinstance(raw_actions, list) else []
+        return {
+            "actions": validate_actions(actions),
+            "reply": str(data.get("reply") or "好的，已為您處理。"),
+            "intent": str(data.get("intent") or "command"),
+        }
+
     def generate_plan(self, user_text, device_status, current_temp, memory_context, history_context, ambient_temp=None, ambient_humidity=None) -> Dict[str, Any]:
-        # ... (其餘程式碼與之前相同)
         prompt = self.prompt_builder.build_prompt(
             user_text=user_text,
             device_status=device_status,
@@ -67,6 +96,18 @@ class LLMEngine:
             ambient_temp=ambient_temp,
             ambient_humidity=ambient_humidity
         )
-        # (API 呼叫與 JSON 解析邏輯...)
-        # (此處省略以節省篇幅)
-        return {"actions": [], "reply": "...", "intent": "..."}
+
+        try:
+            client = self._get_gemini_client()
+            response = client.models.generate_content(
+                model=os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"),
+                contents=prompt,
+            )
+            response_text = getattr(response, "text", "") or ""
+            return self._parse_response(response_text)
+        except Exception as e:
+            return {
+                "actions": [],
+                "reply": f"抱歉，我目前無法連線到語意服務：{e}",
+                "intent": "gemini_error",
+            }

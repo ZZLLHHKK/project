@@ -16,7 +16,7 @@ import threading
 import time
 from typing import Optional
 
-import utils.config as config
+import src.utils.config as config
 
 # Optional GPIO fallback for non-Raspberry Pi environments.
 try:

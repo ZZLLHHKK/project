@@ -14,7 +14,7 @@ Notes
 from pathlib import Path
 import os
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]  # 調整層級到 project 根目錄
+PROJECT_ROOT = Path(__file__).resolve().parents[2]  # 調整層級到 project 根目錄
 # 重要 : 這裡要根據你的檔案目錄來決定, 要找出 project root 路徑才會對
 # /home/pi/project/src/utils/config.py
 # parents[0] → /home/pi/project/src/utils

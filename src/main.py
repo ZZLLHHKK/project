@@ -14,16 +14,16 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 # ====================== 匯入所有模組 ======================
-# 目前在 test_area/ 結構（搬移後請把 test_area. 全部刪掉）
-from test_area.audio.speech_processor import SpeechProcessor
-from test_area.core.agent import SmartHomeAgent
-from test_area.core.memory_agent import MemoryAgent
-from test_area.core.state_manager import StateManager
-from test_area.core.parser import DEFAULT_PARSER          # 內建 FastPath + Gemini facade
-from test_area.core.router import Router
-from test_area.llm.llm_engine import LLMEngine
-from test_area.llm.prompt_builder import PromptBuilder
-from test_area.devices.device_controller import DeviceController
+# 目前在 src/ 結構（搬移後請把 src. 全部刪掉）
+from src.audio.speech_processor import SpeechProcessor
+from src.core.agent import SmartHomeAgent
+from src.core.memory_agent import MemoryAgent
+from src.core.state_manager import StateManager
+from src.core.parser import DEFAULT_PARSER          # 內建 FastPath + Gemini facade
+from src.core.router import Router
+from src.llm.llm_engine import LLMEngine
+from src.llm.prompt_builder import PromptBuilder
+from src.devices.device_controller import DeviceController
 
 # ====================== 建立物件（Dependency Injection） ======================
 print("🔧 正在初始化系統...")

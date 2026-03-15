@@ -15,23 +15,23 @@ import sys
 from pathlib import Path
 from typing import Optional, Tuple, List, Dict, Any
 
-# Allow direct execution: python test_area/core/parser/fastpath_parser.py
+# Allow direct execution: python src/core/parser/fastpath_parser.py
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 try:
-    import utils.config as config
-    from core.actions_schema import ActionDict
-    from utils.file_io import push_history, load_rules, append_line_unique
+    import src.utils.config as config
+    from src.core.actions_schema import ActionDict
+    from src.utils.file_io import push_history, load_rules, append_line_unique
 except ModuleNotFoundError:
     # Fallback for direct file runs when src package optional deps are missing.
     SRC_ROOT = PROJECT_ROOT / "src"
     if str(SRC_ROOT) not in sys.path:
         sys.path.insert(0, str(SRC_ROOT))
-    import utils.config as config
-    from core.actions_schema import ActionDict
-    from utils.file_io import push_history, load_rules, append_line_unique
+    import src.utils.config as config
+    from src.core.actions_schema import ActionDict
+    from src.utils.file_io import push_history, load_rules, append_line_unique
 
 # -------------------------
 # Math helpers

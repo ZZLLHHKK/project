@@ -1,10 +1,10 @@
 """
-Action validation & normalization for test_area.
+Action validation & normalization for src.
 """
 from typing import List, Any, Optional
 import math
-import utils.config as config
-from core.actions_schema import ActionDict
+import src.utils.config as config
+from src.core.actions_schema import ActionDict
 
 class ActionValidator:	
 	@staticmethod
@@ -96,3 +96,8 @@ class ActionValidator:
 			if va is not None:
 				out.append(va)
 		return out
+
+
+def validate_actions(actions: List[ActionDict]) -> List[ActionDict]:
+	"""Backward-compatible wrapper for modules importing validate_actions directly."""
+	return ActionValidator.validate_actions(actions)

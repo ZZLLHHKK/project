@@ -1,9 +1,12 @@
 import os
 import struct
-import pvporcupine
-import pyaudio
 from pathlib import Path
-from dotenv import load_dotenv
+
+try:
+    from dotenv import load_dotenv
+except Exception:
+    def load_dotenv(*_args, **_kwargs):
+        return False
 
 # 載入 .env 變數
 load_dotenv()
@@ -16,6 +19,13 @@ def wait_for_wake_word():
     阻塞程式，直到聽到指定的喚醒詞為止。
     """
     access_key = os.getenv("PICOVOICE_API_KEY")
+
+    try:
+        import pvporcupine
+        import pyaudio
+    except Exception as e:
+        print(f"錯誤: 喚醒詞套件未安裝或不可用: {e}")
+        return False
 
     if not access_key:
         print("錯誤: 找不到 PICOVOICE_API_KEY，請檢查 .env 檔案")

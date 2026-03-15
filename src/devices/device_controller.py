@@ -1,7 +1,7 @@
-from devices.hardware_fan import FanController
-from devices.hardware_led import LedController
-from devices.hardware_7seg import SevenSegDisplay
-from devices.hardware_dht11 import DHT11Reader
+from .hardware_fan import FanController
+from .hardware_led import LedController
+from .hardware_7seg import SevenSegDisplay
+from .hardware_dht11 import DHT11Reader
 
 class DeviceController:
     def __init__(self):

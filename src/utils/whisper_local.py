@@ -3,9 +3,14 @@ from functools import lru_cache
 from pathlib import Path
 import os
 from typing import Optional
-from faster_whisper import WhisperModel
-from dotenv import load_dotenv
-from utils.config import PROJECT_ROOT, WHISPER_MODEL_NAME
+
+try:
+    from dotenv import load_dotenv
+except Exception:
+    def load_dotenv(*_args, **_kwargs):
+        return False
+
+from src.utils.config import PROJECT_ROOT, WHISPER_MODEL_NAME
 
 load_dotenv()  # 載入 .env 的 HF_TOKEN（避免下載警告）
 
@@ -15,10 +20,17 @@ def _get_model(
     device: str = "cpu",
     compute_type: str = "int8",
     cpu_threads: int = 4
-) -> WhisperModel:
+) -> object:
     """
     快取載入 faster-whisper 模型（避免每次轉錄都重新載入）
     """
+    try:
+        from faster_whisper import WhisperModel
+    except Exception as e:
+        raise RuntimeError(
+            f"faster-whisper 未安裝或不可用: {e}. 請先安裝 requirements.txt"
+        ) from e
+
     return WhisperModel(
         model_name_or_path,
         device=device,

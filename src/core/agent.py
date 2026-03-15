@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-# Allow direct execution: python test_area/core/agent.py
+# Allow direct execution: python src/core/agent.py
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
 	sys.path.insert(0, str(PROJECT_ROOT))
@@ -16,10 +16,10 @@ try:
 	from .state_manager import StateManager
 	from .parser import DEFAULT_PARSER, ParserFacade
 except ImportError:
-	from test_area.core.memory_agent import MemoryAgent
-	from test_area.core.router import Intent, RouteType, Router, is_system_reset_command
-	from test_area.core.state_manager import StateManager
-	from test_area.core.parser import DEFAULT_PARSER, ParserFacade
+	from src.core.memory_agent import MemoryAgent
+	from src.core.router import Intent, RouteType, Router, is_system_reset_command
+	from src.core.state_manager import StateManager
+	from src.core.parser import DEFAULT_PARSER, ParserFacade
 
 
 @dataclass(slots=True)

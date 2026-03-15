@@ -15,20 +15,18 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, List, Optional, Tuple, Union, Dict
+from typing import Any, Callable, List, Optional, Tuple, Union, Dict
 
-from google import genai
-
-# Allow direct execution: python test_area/core/parser/gemini_parser.py
+# Allow direct execution: python src/core/parser/gemini_parser.py
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-import utils.config as config
-from core.actions_schema import ActionDict
-from parser.fastpath_parser import apply_memory_rules
-from utils.file_io import read_text, format_history_for_prompt
-from core.validator import validate_actions
+import src.utils.config as config
+from src.core.actions_schema import ActionDict
+from src.core.parser.fastpath_parser import apply_memory_rules
+from src.utils.file_io import read_text, format_history_for_prompt
+from src.core.validator import validate_actions
 
 # The client automatically reads GEMINI_API_KEY from environment variables.
 # client = genai.Client()  # 移到函式內初始化
@@ -51,7 +49,7 @@ def _strip_code_fences(s: str) -> str:
     s = _FENCE_RE_2.sub("", s)
     return s.strip()
 
-def _get_gemini_client() -> genai.Client:
+def _get_gemini_client() -> Any:
     """延遲初始化 Gemini client，避免在模塊載入時就檢查 API key"""
     try:
         _try_load_dotenv()
@@ -68,6 +66,8 @@ def _get_gemini_client() -> genai.Client:
                 "import os\n"
                 "os.environ['GEMINI_API_KEY'] = '你的API金鑰'"
             )
+        from google import genai
+
         return genai.Client(api_key=api_key)
     except Exception as e:
         raise ValueError(f"初始化 Gemini client 失敗: {e}") from e
@@ -242,7 +242,7 @@ class GeminiParser:
 
     def __init__(
         self,
-        client_factory: Callable[[], genai.Client] = _get_gemini_client,
+        client_factory: Callable[[], Any] = _get_gemini_client,
         prompt_builder: Optional[PromptBuilder] = None,
         response_parser: Optional[ResponseParser] = None,
     ) -> None:
