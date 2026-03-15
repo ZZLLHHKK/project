@@ -1,4 +1,5 @@
 # test_area/llm/prompt_builder.py
+# StateManager, MemoryAgent, SmartHomeAgent
 
 class PromptBuilder:
     """
