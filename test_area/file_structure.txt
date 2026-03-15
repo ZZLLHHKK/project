@@ -2,11 +2,14 @@ project/
 │
 ├── core/
 │   ├── agent.py
+│   ├── actions_schema.py
 │   ├── state_manager.py
 │   ├── memory_agent.py
 │   ├── validator.py
-│   └── router.py
-│
+│   ├── router.py
+│   └── parser
+|       ├── fastpath_parser.py
+|       └── gemini_parser.py
 ├── llm/
 │   ├── llm_engine.py
 │   └── prompt_builder.py
@@ -15,8 +18,12 @@ project/
 │   └── speech_processor.py
 │
 ├── devices/
-│   └── device_controller.py
-│
+│   ├── device_controller.py
+│   ├── hardware_7seg.py
+│   ├── hardware_dht11.py
+│   ├── hardware_fan.py
+│   └── hardware_led.py
+|
 ├── utils/
 │    
 └── main.py
