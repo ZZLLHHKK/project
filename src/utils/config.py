@@ -27,6 +27,7 @@ INPUT_FILE = DATA_DIR / "input.txt"
 OUTPUT_FILE = DATA_DIR / "output.txt"
 ACTIONS_FILE = DATA_DIR / "actions.txt"
 RULES_FILE  = DATA_DIR / "memory" / "rules.json"
+MEMORY_FILE = DATA_DIR / "memory" / "memory.txt"
 HISTORY_FILE = DATA_DIR / "history.jsonl"
 REPLY_FILE   = DATA_DIR / "reply.txt"  # optional: human-friendly confirmations
 RECORDINGS_DIR = DATA_DIR / "recordings"

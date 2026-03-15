@@ -15,7 +15,7 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, List, Optional, Tuple, Union
+from typing import Callable, List, Optional, Tuple, Union, Dict
 
 from google import genai
 
@@ -81,6 +81,9 @@ class PromptContext:
     current_temp: int
     ambient_temp: Optional[int]
     ambient_humidity: Optional[int]
+    memory_context: str
+    fan_state: str
+    led_states: Optional[Dict[str, str]]
 
 
 class PromptBuilder:
@@ -107,13 +110,18 @@ class PromptBuilder:
         current_temp: Optional[int],
         ambient_temp: Optional[int],
         ambient_humidity: Optional[int] = None,
+        fan_state: str = "off",
+        led_states: Optional[Dict[str, str]] = None
     ) -> PromptContext:
         rewritten = self.memory_rule_applier(user_text)
         rules_context = self._bounded(self.rules_reader(config.RULES_FILE) or "")
+        # include optional freeform memory file if configured
+        memory_context = self._bounded(read_text(str(getattr(config, "MEMORY_FILE", ""))) or "")
         history_context = self._bounded(self.history_formatter() or "")
         cur = int(current_temp) if current_temp is not None else 25
         amb = int(ambient_temp) if ambient_temp is not None else None
         hum = int(ambient_humidity) if ambient_humidity is not None else None
+        leds = led_states or {"KITCHEN": "off", "LIVING": "off", "GUEST": "off"}
         return PromptContext(
             rewritten_text=rewritten,
             rules_context=rules_context,
@@ -121,15 +129,26 @@ class PromptBuilder:
             current_temp=cur,
             ambient_temp=amb,
             ambient_humidity=hum,
+            memory_context=memory_context,
+            fan_state=fan_state,
+            led_states=leds,
         )
 
     def build_prompt(self, ctx: PromptContext) -> str:
+            leds = ctx.led_states or {"KITCHEN": "off", "LIVING": "off", "GUEST": "off"}
+            device_status = (
+                f"- Fan: {ctx.fan_state}\n"
+                f"- Kitchen light: {leds.get('KITCHEN', 'off')}\n"
+                f"- Living room light: {leds.get('LIVING', 'off')}\n"
+                f"- Guest room light: {leds.get('GUEST', 'off')}"
+            )
             return f"""
 You are a smart-home command parser.
 You must output JSON ONLY.
 
 OUTPUT FORMAT (hard constraints):
-- Output must be exactly a single JSON object with two keys: "actions" and "reply".
+- Output must be exactly a single JSON object with three keys: "actions", "reply", and "intent".
+- "intent": one of ["command", "query", "unclear"]
 - "actions": A JSON array of action objects.
     - type: one of ["SET_TEMP","FAN","LED"]
     - For SET_TEMP: value (number)
@@ -173,8 +192,10 @@ CONTEXT:
 - Current temperature setting is {ctx.current_temp} C.
 - Ambient temperature from sensor is {ctx.ambient_temp} C (if provided).
 - Ambient humidity from sensor is {ctx.ambient_humidity} % (if provided).
+- Current device states:
+{device_status}
 - Memory rules (user preferences) to apply:
-{ctx.rules_context if ctx.rules_context else "(empty)"}
+{ctx.memory_context if ctx.memory_context else "(empty)"}
 
 - Recent conversation history (most recent last):
 {ctx.history_context if ctx.history_context else "(empty)"}
@@ -204,6 +225,7 @@ class ResponseParser:
 
         raw_actions = data.get("actions", [])
         reply_text = data.get("reply", "好的，已為您處理。")
+        intent = data.get("intent", "command")
 
         actions: List[ActionDict] = []
         if isinstance(raw_actions, list):
@@ -212,7 +234,7 @@ class ResponseParser:
                     actions.append(dict(item))
 
         validated = self.validator(actions)
-        return validated, reply_text, None
+        return validated, reply_text, intent
 
 
 class GeminiParser:
@@ -242,13 +264,15 @@ class GeminiParser:
         current_temp: Optional[int] = None,
         ambient_temp: Optional[int] = None,
         ambient_humidity: Optional[int] = None,
+        fan_state: str = "off",
+        led_states: Optional[Dict[str, str]] = None,
         return_reply: bool = False,
-    ) -> Union[List[ActionDict], Tuple[List[ActionDict], Optional[str]]]:
-        """Return validated actions, with optional assistant reply."""
+    ) -> Union[List[ActionDict], Tuple[List[ActionDict], Optional[str], Optional[str]]]:
+        """Return validated actions, with optional assistant reply and intent."""
         if not user_text or not user_text.strip():
             return ([], None) if return_reply else []
 
-        ctx = self.prompt_builder.build_context(user_text, current_temp, ambient_temp, ambient_humidity)
+        ctx = self.prompt_builder.build_context(user_text, current_temp, ambient_temp, ambient_humidity, fan_state=fan_state, led_states=led_states)
         prompt = self.prompt_builder.build_prompt(ctx)
 
         try:
@@ -258,9 +282,9 @@ class GeminiParser:
                 return [], f"[gemini_error] {e}"
             return []
 
-        actions, reply_text, _ = self.response_parser.parse(llm_text)
+        actions, reply_text, intent = self.response_parser.parse(llm_text)
         if return_reply:
-            return actions, reply_text
+            return actions, reply_text, intent
         return actions
 
 
@@ -272,14 +296,18 @@ def parse_with_gemini(
     current_temp: Optional[int] = None,
     ambient_temp: Optional[int] = None,
     ambient_humidity: Optional[int] = None,
+    fan_state: str = "off",
+    led_states: Optional[Dict[str, str]] = None,
     return_reply: bool = False
-) -> Union[List[ActionDict], Tuple[List[ActionDict], Optional[str]]]:
+) -> Union[List[ActionDict], Tuple[List[ActionDict], Optional[str], Optional[str]]]:
     """Backward-compatible function wrapper."""
     return _DEFAULT_GEMINI_PARSER.parse(
         user_text=user_text,
         current_temp=current_temp,
         ambient_temp=ambient_temp,
         ambient_humidity=ambient_humidity,
+        fan_state=fan_state,
+        led_states=led_states,
         return_reply=return_reply,
     )
 
@@ -299,6 +327,14 @@ if __name__ == "__main__":
 
     for idx, text in enumerate(samples, start=1):
         print(f"\n[{idx}] input={text!r}")
-        actions, reply = parser.parse(text, current_temp=25, ambient_temp=29, return_reply=True)
+        actions, reply, intent = parser.parse(
+            text,
+            current_temp=25,
+            ambient_temp=29,
+            fan_state="off",
+            led_states={"KITCHEN": "off", "LIVING": "off", "GUEST": "off"},
+            return_reply=True,
+        )
         print("actions:", actions)
         print("reply:", reply)
+        print("intent:", intent)
