@@ -1,11 +1,9 @@
 # test_area/llm/llm_engine.py
 
 import os
-import json
 import re
 from typing import Dict, Any
 from google import genai
-import src.utils.config as config 
 
 class LLMEngine:
     """

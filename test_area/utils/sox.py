@@ -8,7 +8,7 @@ import threading
 import itertools
 from pathlib import Path
 from typing import Optional
-from src.utils.config import PROJECT_ROOT, DATA_DIR, RECORDINGS_DIR, INPUT_FILE, DEVICE_PORT, WHISPER_MODEL_NAME
+from utils.config import RECORDINGS_DIR, INPUT_FILE, DEVICE_PORT, WHISPER_MODEL_NAME
 
 RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -82,9 +82,9 @@ def record_with_sox(
         return ""
     
 # analyze part
-from src.utils.whisper_local import transcribe_latest_wav
-from src.utils.file_io import write_text_file  
-from src.utils.config import SOUND_GET
+from utils.whisper_local import transcribe_latest_wav
+from utils.file_io import write_text_file  
+from utils.config import SOUND_GET
 
 
 def play_notification(wav_path: Path):

@@ -17,7 +17,7 @@ import time
 import threading
 from typing import Optional, Tuple
 
-import src.utils.config as config
+import utils.config as config
 
 # -------------------------
 # Library detection

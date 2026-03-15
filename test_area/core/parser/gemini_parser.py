@@ -24,11 +24,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-import src.utils.config as config
-from src.nodes.langgraph_split_files.actions_schema import ActionDict
-from src.nodes.langgraph_split_files.parser_fastpath import apply_memory_rules
-from src.utils.file_io import read_text, format_history_for_prompt
-from src.nodes.langgraph_split_files.validator import validate_actions
+import utils.config as config
+from core.actions_schema import ActionDict
+from parser.fastpath_parser import apply_memory_rules
+from utils.file_io import read_text, format_history_for_prompt
+from core.validator import validate_actions
 
 # The client automatically reads GEMINI_API_KEY from environment variables.
 # client = genai.Client()  # 移到函式內初始化

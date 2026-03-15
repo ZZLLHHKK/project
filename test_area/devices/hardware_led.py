@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-import src.utils.config as config
+import utils.config as config
 
 try:
     import RPi.GPIO as GPIO  # type: ignore

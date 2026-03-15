@@ -3,9 +3,9 @@ import os
 import json
 import time
 import re
-from typing import List, Dict, Any, Tuple, Optional
+from typing import List, Dict, Any, Tuple
 
-from src.utils.config import INPUT_FILE, OUTPUT_FILE, HISTORY_FILE, RULES_FILE, HISTORY_KEEP
+from utils.config import HISTORY_FILE, RULES_FILE, HISTORY_KEEP
 
 def ensure_file(path: str) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)

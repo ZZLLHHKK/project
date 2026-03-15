@@ -7,20 +7,18 @@
 
 from __future__ import annotations
 
-import sys
-import os
 import subprocess
 from pathlib import Path
 from typing import Optional
 
 # 從新架構的 utils 引入配置與 TTS（未來移到 audio/ 後可改相對 import）
-from src.utils.config import (
+from utils.config import (
     DEVICE_PORT,
     RECORDING_DURATION,
     LANGUAGE,
     RECORDINGS_DIR,
 )
-from src.utils.tts import speak  # ← 嘴巴功能直接使用現有 TTS
+from utils.tts import speak  # ← 嘴巴功能直接使用現有 TTS
 
 
 class SpeechProcessor:
@@ -82,7 +80,7 @@ class SpeechProcessor:
 
     def _transcribe(self, wav_path: str, language: str = LANGUAGE) -> str:
         """呼叫 faster-whisper 轉錄"""
-        from src.utils.whisper_local import transcribe_latest_wav  # 避免循環 import
+        from utils.whisper_local import transcribe_latest_wav  # 避免循環 import
 
         text = transcribe_latest_wav(
             input_wav=wav_path,

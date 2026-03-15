@@ -1,7 +1,7 @@
 # src/utils/tts.py
 import subprocess
 import os
-from src.utils.config import PIPER_EXE, TTS_MODEL
+from utils.config import PIPER_EXE, TTS_MODEL
 
 def speak(text: str) -> None:
     """

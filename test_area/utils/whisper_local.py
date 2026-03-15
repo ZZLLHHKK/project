@@ -5,7 +5,7 @@ import os
 from typing import Optional
 from faster_whisper import WhisperModel
 from dotenv import load_dotenv
-from src.utils.config import PROJECT_ROOT, WHISPER_MODEL_NAME
+from utils.config import PROJECT_ROOT, WHISPER_MODEL_NAME
 
 load_dotenv()  # 載入 .env 的 HF_TOKEN（避免下載警告）
 

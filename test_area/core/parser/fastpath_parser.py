@@ -21,17 +21,17 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 try:
-    import src.utils.config as config
-    from src.nodes.langgraph_split_files.actions_schema import ActionDict
-    from src.utils.file_io import push_history, load_rules, append_line_unique
+    import utils.config as config
+    from core.actions_schema import ActionDict
+    from utils.file_io import push_history, load_rules, append_line_unique
 except ModuleNotFoundError:
     # Fallback for direct file runs when src package optional deps are missing.
     SRC_ROOT = PROJECT_ROOT / "src"
     if str(SRC_ROOT) not in sys.path:
         sys.path.insert(0, str(SRC_ROOT))
-    import src.utils.config as config
-    from src.nodes.langgraph_split_files.actions_schema import ActionDict
-    from src.utils.file_io import push_history, load_rules, append_line_unique
+    import utils.config as config
+    from core.actions_schema import ActionDict
+    from utils.file_io import push_history, load_rules, append_line_unique
 
 # -------------------------
 # Math helpers

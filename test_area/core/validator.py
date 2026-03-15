@@ -3,8 +3,8 @@ Action validation & normalization for test_area.
 """
 from typing import List, Any, Optional
 import math
-import src.utils.config as config
-from src.nodes.langgraph_split_files.actions_schema import ActionDict
+import utils.config as config
+from core.actions_schema import ActionDict
 
 class ActionValidator:	
 	@staticmethod
