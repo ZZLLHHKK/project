@@ -1,0 +1,155 @@
+from __future__ import annotations
+# src/config.py 放檔案路徑跟腳位控制的地方
+"""
+Central configuration shared by parsers and hardware executors.
+
+Notes
+- Do NOT hardcode API keys in code. Set them via environment variables.
+  Example:
+    export GEMINI_API_KEY="..."
+    export GEMINI_MODEL="gemini-2.5-flash"
+- All txt/jsonl files live under ./data/
+"""
+
+from pathlib import Path
+import os
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]  # 調整層級到 project 根目錄
+# 重要 : 這裡要根據你的檔案目錄來決定, 要找出 project root 路徑才會對
+# /home/pi/project/src/utils/config.py
+# parents[0] → /home/pi/project/src/utils
+# parents[1] → /home/pi/project/src
+# parents[2] → /home/pi/project
+
+# data part
+DATA_DIR = PROJECT_ROOT / "data"
+INPUT_FILE = DATA_DIR / "input.txt"
+OUTPUT_FILE = DATA_DIR / "output.txt"
+ACTIONS_FILE = DATA_DIR / "actions.txt"
+RULES_FILE  = DATA_DIR / "memory" / "rules.json"
+MEMORY_FILE = DATA_DIR / "memory" / "memory.txt"
+HISTORY_FILE = DATA_DIR / "history.jsonl"
+REPLY_FILE   = DATA_DIR / "reply.txt"  # optional: human-friendly confirmations
+RECORDINGS_DIR = DATA_DIR / "recordings"
+LONG_TERM = DATA_DIR / "memory" / "long_term.jsonl"
+SHORT_TERM = DATA_DIR / "memory" / "short_term.json"  
+
+# --- 提示音效 (Earcons) 設定 ---
+AUDIO_DIR = DATA_DIR / "audio"
+SOUND_GET = AUDIO_DIR / "dong_ding.wav"
+
+# --- TTS (Piper 語音引擎) 設定 ---
+PIPER_DIR = PROJECT_ROOT / "piper"  
+PIPER_EXE = PIPER_DIR / "piper"
+
+# 語音模型統一下載到 models 資料夾
+MODELS_DIR = DATA_DIR / "models"
+TTS_MODEL = MODELS_DIR / "voice.onnx"
+
+HISTORY_KEEP = 5
+
+# whisper model settings (faster-whisper)
+# Use Hugging Face repo names for CTranslate2 models
+FASTER_WHISPER_MODEL = "base" 
+WHISPER_MODEL_NAME = FASTER_WHISPER_MODEL
+
+# 錄音配置 
+DEVICE_PORT = "plughw:3,0"           # 樹莓派錄音接口 (在終端機 arecord -l)
+RECORDING_DURATION = 5               # 錄音秒數
+LANGUAGE = "auto"                    # whisper 語言代碼 (中英適用)
+GEMINI_MODEL = "gemini-2.5-flash"
+
+# -------------------------
+# Temperature constraints
+# -------------------------
+MIN_TEMP = 18.0
+MAX_TEMP = 30.0
+COMFORT_MIN = 22.0
+COMFORT_MAX = 26.0
+
+# -------------------------
+# 7-seg GPIO mapping (BCM)  (from temp_7seg_fuzzy_memory.py)
+# -------------------------
+SEGMENTS = {'a': 2, 'b': 27, 'c': 18, 'd': 15, 'e': 14, 'f': 3, 'g': 23}
+DIGIT_2 = 4
+DIGIT_3 = 17
+DIGITS = [DIGIT_2, DIGIT_3]  # left -> right (swap if needed)
+
+# Common Anode segment patterns: 0=ON (LOW), 1=OFF (HIGH)
+NUM_MAP = {
+    '0': (0,0,0,0,0,0,1),
+    '1': (1,0,0,1,1,1,1),
+    '2': (0,0,1,0,0,1,0),
+    '3': (0,0,0,0,1,1,0),
+    '4': (1,0,0,1,1,0,0),
+    '5': (0,1,0,0,1,0,0),
+    '6': (0,1,0,0,0,0,0),
+    '7': (0,0,0,1,1,1,1),
+    '8': (0,0,0,0,0,0,0),
+    '9': (0,0,0,0,1,0,0),
+    ' ': (1,1,1,1,1,1,1),
+}
+
+# Digit enable polarity (from temp_7seg_fuzzy_memory.py)
+# If your digits are inverted, swap these.
+DIGIT_ON  = 1  # GPIO.HIGH
+DIGIT_OFF = 0  # GPIO.LOW
+
+# -------------------------
+# LED / Fan GPIO mapping (BCM) (from controller_gemini_gpio.py)
+# -------------------------
+RELAY_FAN = 24
+
+LED_RED    = 22   # kitchen
+LED_GREEN  = 10   # living
+LED_YELLOW = 9  # guest
+
+# Relay trigger logic (most relay modules are LOW-level triggered)
+RELAY_ON  = 0  # GPIO.LOW
+RELAY_OFF = 1  # GPIO.HIGH
+
+# LED trigger logic (typical LED: HIGH on, LOW off)
+LED_ON  = 1  # GPIO.HIGH
+LED_OFF = 0  # GPIO.LOW
+
+# Canonical locations
+LOC_KITCHEN = "KITCHEN"
+LOC_LIVING  = "LIVING"
+LOC_GUEST   = "GUEST"
+
+LED_LOCATION_TO_PIN = {
+    LOC_KITCHEN: LED_RED,
+    LOC_LIVING:  LED_GREEN,
+    LOC_GUEST:   LED_YELLOW,
+}
+
+# -------------------------
+# DHT11 temperature/humidity sensor (BCM pin)
+# -------------------------
+# Enable/disable by environment variable DHT11_ENABLED=1/0
+DHT11_ENABLED = os.getenv("DHT11_ENABLED", "1").strip() not in ("0", "false", "False", "OFF", "off")
+DHT11_PIN = int(os.getenv("DHT11_PIN", "25"))  # BCM pin number (default GPIO17)
+# Read interval (seconds). DHT11 is slow; 2s is safe.
+DHT11_READ_INTERVAL_SEC = float(os.getenv("DHT11_READ_INTERVAL_SEC", "2.0"))
+
+# Auto cooling control (using FAN relay as the actuator).
+# If ambient >= setpoint + hysteresis -> FAN ON
+# If ambient <= setpoint - hysteresis -> FAN OFF
+AUTO_COOL_ENABLED = os.getenv("AUTO_COOL_ENABLED", "1").strip() not in ("0", "false", "False", "OFF", "off")
+AUTO_COOL_HYST = float(os.getenv("AUTO_COOL_HYST", "0.5"))
+# After a manual FAN command, pause auto control for a while (seconds)
+AUTO_PAUSE_AFTER_MANUAL_FAN_SEC = int(os.getenv("AUTO_PAUSE_AFTER_MANUAL_FAN_SEC", "120"))
+
+# When user sets temperature, briefly show the setpoint on 7-seg then go back to ambient (seconds)
+SHOW_SETPOINT_SEC = float(os.getenv("SHOW_SETPOINT_SEC", "2.0"))
+
+
+# -------------------------
+# Display behavior
+# -------------------------
+# Scheme A: always show target/setpoint on 7-seg.
+# Options: 'setpoint' (default), 'ambient'
+DISPLAY_MODE = os.getenv("DISPLAY_MODE", "setpoint").strip().lower()
+
+# Delay between processing input lines (seconds). Helps the 7-seg show intermediate changes.
+INPUT_LINE_DELAY_SEC = float(os.getenv("INPUT_LINE_DELAY_SEC", "0.8"))

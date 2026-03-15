@@ -20,10 +20,3 @@ data/recordings/*
 *.env.*
 secrets.yaml
 config_secrets.py
-
-#其他檔案
-scripts/test_gpio/*
-
-#忽略測試檔案
-scripts
-test_area
