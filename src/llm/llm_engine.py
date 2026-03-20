@@ -24,7 +24,7 @@ class LLMEngine:
             return
         load_dotenv(override=False)
 
-    def get_adapter_responder(self, state_manager):
+    def get_adapter_responder(self, state_manager, action_executor = None):
         """
         適配器模式 (Adapter Pattern)：
         將複雜的 generate_plan 封裝成 Agent 想要的簡單格式 (str, str) -> str。
@@ -43,12 +43,23 @@ class LLMEngine:
                 ambient_temp=state.get("ambient_temp"),
                 ambient_humidity=state.get("ambient_humidity")
             )
+            # =====================================================================
+            #【解決問題：LLM 說了要改溫度，但硬體與面板卻沒反應】
+            # 發生原因：原本程式只把 LLM 的「回覆台詞 (reply)」拿去播放，
+            #          卻忘記把 LLM 決定的「動作指令 (actions)」交給硬體執行。
+            # 解決方式：把 action_executor (執行器) 傳進來，一旦 LLM 產出動作，
+            #          就立刻命令硬體與面板進行更新！
+            # =====================================================================
+            actions = result.get("actions", [])
+            if actions and action_executor:
+                action_executor(actions)
             
-            # 3. 副作用處理：將 LLM 產生的動作回存至狀態機
+            # 副作用處理：將 LLM 產生的動作回存至狀態機
             state_manager.set_state(raw_actions=result["actions"])
             
-            # 4. 回傳總控官需要的純文字內容
-            return result["reply"]
+            # 回傳總控官需要的純文字內容
+            # 同時預防當沒有拿到 LLM 的回覆的時候，以「好的，已為您處理。」作為回覆
+            return result.get("reply", "好的，已為您處理。")
         
         return responder
 

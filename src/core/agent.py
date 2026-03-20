@@ -102,14 +102,18 @@ class SmartHomeAgent:
 			return out
 
 		decision = self.router.route(clean_input)
+		# 如果沒有傳入新值，就沿用 state 目前保留的數值
+		new_setpoint = current_temp if current_temp is not None else self.state.setpoint_temp
+		new_ambient = ambient_temp if ambient_temp is not None else self.state.ambient_temp
+		
 		self.state.set_state(
 			conversation_active=True,
 			input_text=clean_input,
 			last_intent=decision.intent.value,
 			status="start",
 			needs_clarification=False,
-			ambient_temp=ambient_temp,
-			setpoint_temp=current_temp if current_temp is not None else 25,
+			ambient_temp=new_ambient,
+			setpoint_temp=new_setpoint,
 		)
 
 		# System commands can be handled directly without parser/llm.
@@ -136,38 +140,41 @@ class SmartHomeAgent:
 			self._save_turn(clean_input, result.reply)
 			return result
 
-		# Device-command extraction belongs to fastpath parser, not Router.
-		fast_actions = self.parser.fastpath.parse(clean_input)
-		if fast_actions:
-			self.action_executor(fast_actions)
-			reply = "好的，已為你處理。"
+		question_keywords = ["嗎", "呢", "狀態", "有沒有", "是不是", "確認", "幾度", "?", "？"]
+		is_question = any(q in clean_input for q in question_keywords)
+		if not is_question:
+			fast_actions = self.parser.fastpath.parse(clean_input)
+			if fast_actions:
+				self.action_executor(fast_actions)
+				reply = "好的，已為你處理。"
 
-			self.state.set_state(
-				raw_actions=fast_actions,
-				validated_actions=fast_actions,
-				status="executed",
-				llm_reply=reply,
-			)
+				self.state.set_state(
+					raw_actions=fast_actions,
+					validated_actions=fast_actions,
+					status="executed",
+					llm_reply=reply,
+				)
 
-			for action in fast_actions:
-				action_type = str(action.get("type", ""))
-				if action_type == "SET_TEMP":
-					self.state.setpoint_temp = action.get("value")
-				elif action_type == "FAN":
-					self.state.fan_state = action.get("state")
-				elif action_type == "LED":
-					loc = str(action.get("location", "UNKNOWN")).upper()
-					self.state.led_states[loc] = action.get("state")
+				for action in fast_actions:
+					action_type = str(action.get("type", ""))
+					if action_type == "SET_TEMP":
+						self.state.setpoint_temp = action.get("value")
+					elif action_type == "FAN":
+						self.state.fan_state = action.get("state")
+					elif action_type == "LED":
+						loc = str(action.get("location", "UNKNOWN")).upper()
+						self.state.led_states[loc] = action.get("state")
 
-			result = AgentResult(
-				reply=reply,
-				actions=fast_actions,
-				route_type=RouteType.FAST_COMMAND,
-				intent=Intent.DEVICE_CONTROL,
-			)
-			self._save_turn(clean_input, result.reply)
-			return result
-
+				result = AgentResult(
+					reply=reply,
+					actions=fast_actions,
+					route_type=RouteType.FAST_COMMAND,
+					intent=Intent.DEVICE_CONTROL,
+				)
+				self._save_turn(clean_input, result.reply)
+				return result
+		else:
+			print(f"偵測到疑問句 '{clean_input}'，跳過 FastPath，準備交給 LLM...")
 		memory_context = self.memory.get_context(limit=5)
 		llm_reply = self.llm_responder(clean_input, memory_context)
 		self.state.set_state(

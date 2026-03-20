@@ -22,10 +22,11 @@ from .fastpath_parser import (
 	try_learn_rule,
 )
 from .gemini_parser import GeminiParser, PromptBuilder, ResponseParser, parse_with_gemini
-
+import random
+import re
 
 @dataclass(slots=True)
-class ParserFacade:
+class ParserFacade: 
 	"""Unified parser entrypoint for application use.
 
 	Flow:
@@ -42,8 +43,12 @@ class ParserFacade:
 		user_text: str,
 		current_temp: Optional[int] = None,
 		ambient_temp: Optional[int] = None,
+		ambient_humidity: Optional[int] = None,
+		fan_state: str = "off",
+		led_states: Optional[dict] = None,
 		return_reply: bool = False,
 	):
+
 		learned = self.fastpath.learn_rule(user_text)
 		if learned is not None:
 			if return_reply:
@@ -53,13 +58,22 @@ class ParserFacade:
 		fast_actions = self.fastpath.parse(user_text)
 		if fast_actions:
 			if return_reply:
-				return fast_actions, None
+				if re.search(r'[A-Za-z]', user_text):
+					reply_text = random.choice(["Got it.", "Right away.", "Done."])
+				else:
+					reply_text = random.choice(["好的，馬上為您處理。", "沒問題，幫您執行。", "收到。"])
+					
+				return fast_actions, reply_text, "command"
+		
 			return fast_actions
 
 		return self.gemini.parse(
 			user_text=user_text,
 			current_temp=current_temp,
 			ambient_temp=ambient_temp,
+			ambient_humidity=ambient_humidity,
+			fan_state=fan_state,
+			led_states=led_states,
 			return_reply=return_reply,
 		)
 

@@ -31,6 +31,9 @@ class PromptBuilder:
             memory_context = memory_context[-2000:]
         if len(history_context) > 2000:
             history_context = history_context[-2000:]
+        
+        sensor_temp_info = f"{ambient_temp} °C" if ambient_temp is not None else f"感測器未連線 (因此請直接回答目前的冷氣設定溫度：{current_temp} °C)"
+        sensor_hum_info = f"{ambient_humidity} %" if ambient_humidity is not None else "感測器未連線，無法得知濕度"
 
         # 這裡就是你原本 parser_gemini.py 裡面的那一大段 f-string
         prompt = f"""
@@ -38,54 +41,44 @@ You are a smart-home command parser.
 You must output JSON ONLY.
 
 OUTPUT FORMAT (hard constraints):
-- Output must be exactly a single JSON object with three keys: "actions", "reply", and "intent".
-- "intent": one of ["command", "query", "unclear"]
-  - "command": the user wants to control a device (e.g., turn on fan, set temperature)
-  - "query": the user is asking a question about current status
-  - "unclear": the user's intent cannot be determined
-- "actions": A JSON array of action objects.
-  - type: one of ["SET_TEMP","FAN","LED"]
-  - For SET_TEMP: value (number)
-  - For FAN: state ("on"|"off")
-  - For LED: location ("KITCHEN"|"LIVING"|"GUEST"), state ("on"|"off")
-- "reply": A natural, conversational response in Traditional Chinese (zh-TW). 
-  - Act as a helpful assistant.
-  - If a request violates constraints, return empty actions [] and politely explain why.
+- EXACTLY one JSON object with keys: "actions", "reply", "intent".
+- "intent": "command", "query", or "unclear".
+- "actions": Array of action objects (SET_TEMP, FAN, LED).
+- "reply": A natural, conversational response in Traditional Chinese (zh-TW). THIS MUST NOT BE EMPTY.
 
 DEVICE MAPPING:
-- Kitchen light => LED location "KITCHEN"
-- Living room light => LED location "LIVING"
-- Guest room light => LED location "GUEST"
-- Fan => type "FAN"
-- Temperature => type "SET_TEMP" (Celsius)
+- Kitchen light (廚房燈) => LED "KITCHEN"
+- Living room light (客廳燈) => LED "LIVING"
+- Guest room light (客房燈) => LED "GUEST"
+- Fan (風扇) => "FAN"
+- Temperature (溫度) => "SET_TEMP"
 
 SYSTEM RULES:
-- Temperature unit is Celsius.
-- Absolute safety range: {self.min_temp} to {self.max_temp} inclusive.
-- Comfort range: {self.comfort_min} to {self.comfort_max}.
-- Ignore profanity; parse only the intent.
-- If the command is ambiguous AND multiple devices are currently ON,
-  return empty actions [] and ask a clarification question in the reply. Set intent to "unclear".
-- If the user is asking a question, return empty actions [] and answer the question in reply. Set intent to "query".
+1. If the user asks a question (e.g., "現在幾度", "燈有開嗎"), intent is "query", actions is []. You MUST write the actual answer in the "reply" field based on CONTEXT.
+2. NEVER output placeholder replies like "好的，已為您處理" for questions.
+3. TYPO CORRECTION: You MUST intelligently guess and auto-correct homophones or typos based on pronunciation (e.g., "除防登" -> "廚房燈", "克聽" -> "客廳", "封扇" -> "風扇").
 
-TEMPERATURE INTERPRETATION:
-1) If user explicitly specifies a number, use it.
-2) If user is fuzzy (e.g., "comfortable"), choose a reasonable number.
-3) If user is relative without a number:
-   - Use current temperature setting {current_temp}.
-   - Typical adjustments: "cold" => +2, "hot" => -2, "higher a bit" => +1, "lower a bit" => -1
+=== FEW-SHOT EXAMPLES (Strictly mimic this JSON structure and logic) ===
+User: "現在溫度幾度？"
+JSON: {{"actions": [], "reply": "目前的溫度設定是 {current_temp} 度。", "intent": "query"}}
+
+User: "幫我開除防登"
+JSON: {{"actions": [{{"type": "LED", "location": "KITCHEN", "state": "on"}}], "reply": "好的，已為您開啟廚房燈。", "intent": "command"}}
+
+User: "克聽的燈幫我關掉"
+JSON: {{"actions": [{{"type": "LED", "location": "LIVING", "state": "off"}}], "reply": "沒問題，已經關閉客廳的燈。", "intent": "command"}}
+
+User: "現在濕度多少？"
+JSON: {{"actions": [], "reply": "目前的濕度狀態是：{sensor_hum_info}。", "intent": "query"}}
+========================================================================
 
 CONTEXT:
-- Current temperature setting is {current_temp} °C.
-- Ambient temperature from sensor is {ambient_temp} °C (if provided).
-- Ambient humidity from sensor is {ambient_humidity} % (if provided).
-- Current device states:
-{device_status}
-- Memory rules (user preferences):
-{memory_context if memory_context else "(empty)"}
-
-- Recent conversation history:
-{history_context if history_context else "(empty)"}
+- Current temperature setting: {current_temp} °C
+- Ambient temperature: {sensor_temp_info}
+- Ambient humidity: {sensor_hum_info}
+- Device states: {device_status}
+- Memory: {memory_context if memory_context else '(empty)'}
+- History: {history_context if history_context else '(empty)'}
 
 USER COMMAND:
 {user_text}

@@ -1,6 +1,8 @@
 from __future__ import annotations
-
 from typing import Any
+from pathlib import Path
+import json
+import os
 
 
 class StateManager:
@@ -28,6 +30,37 @@ class StateManager:
         self.fan_state: str = "off"
         self.led_states: dict = {"KITCHEN": "off", "LIVING": "off", "GUEST": "off"}
         self.ambient_humidity: int | None = None
+
+        # 設定儲存設備狀態的檔案路徑
+        project_root = Path(__file__).resolve().parent.parent.parent
+        self._state_dir = project_root / "data" / "memory" 
+        self._state_file = self._state_dir / "device_state.json"
+        self.load_state()
+
+    def load_state(self) -> None:
+        """從檔案讀取上次關機前的設備與溫度狀態"""
+        if os.path.exists(self._state_file):
+            try:
+                with open(self._state_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    self.setpoint_temp = data.get("setpoint_temp", 25)
+                    self.fan_state = data.get("fan_state", "off")
+                    self.led_states = data.get("led_states", {"KITCHEN": "off", "LIVING": "off", "GUEST": "off"})
+            except Exception as e:
+                print(f"讀取狀態檔失敗: {e}")
+
+    def save_state(self) -> None:
+        """將當前最新的狀態寫入檔案保存"""
+        os.makedirs(os.path.dirname(self._state_file), exist_ok=True)
+        try:
+            with open(self._state_file, "w", encoding="utf-8") as f:
+                json.dump({
+                    "setpoint_temp": self.setpoint_temp,
+                    "fan_state": self.fan_state,
+                    "led_states": self.led_states
+                }, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"寫入狀態檔失敗: {e}")
 
     def get_state(self) -> dict[str, Any]:
         # 回傳快照，避免外部直接修改內部狀態
@@ -58,11 +91,18 @@ class StateManager:
         }
     
     def set_state(self, **kwargs: Any) -> None:
+        needs_save = False
         for key, value in kwargs.items():
             if hasattr(self, key):
                 setattr(self, key, value)
+                # 如果改變的是這三個關鍵狀態，就標記需要存檔
+                if key in ["setpoint_temp", "fan_state", "led_states"]:
+                    needs_save = True
             else:
                 print(f"警告：StateManager 沒有屬性 '{key}'，無法設定。")
+
+        if needs_save:
+            self.save_state()
     
     def reset_conversation(self) -> None:
         self.conversation_active = False
