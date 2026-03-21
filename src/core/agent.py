@@ -87,6 +87,20 @@ class SmartHomeAgent:
 	def _save_turn(self, user_input: str, reply: str) -> None:
 		self.memory.save_interaction(user_input, reply)
 
+	def _validate_actions(self, actions: list[dict[str, Any]]) -> tuple[bool, str]:
+		for a in actions:
+			if a.get("type") == "SET_TEMP":
+				val = a.get("value")
+				try:
+                    # 強制轉成浮點數，這樣不管是整數 80 還是字串 "80" 都能抓到！
+					num_val = float(val)
+					if num_val < 18 or num_val > 30:
+						return False, "抱歉，冷氣溫度只能設定在 18 到 30 度之間喔！"
+				except (ValueError, TypeError):
+                    # 如果解析出來的不是數字（例如意外拿到 None），就先放行或另外處理
+					pass
+		return True, ""
+
 	def handle(self, user_input: str, current_temp: Optional[int] = None, ambient_temp: Optional[int] = None) -> AgentResult:
 		"""Process one user input and return a unified AgentResult."""
 		clean_input = (user_input or "").strip()
@@ -140,11 +154,22 @@ class SmartHomeAgent:
 			self._save_turn(clean_input, result.reply)
 			return result
 
-		question_keywords = ["嗎", "呢", "狀態", "有沒有", "是不是", "確認", "幾度", "?", "？"]
+		question_keywords = ["嗎", "呢", "狀態", "有沒有", "是不是", "確認", "幾度", "?", "？", "高", "低", "升", "降", "調"]
 		is_question = any(q in clean_input for q in question_keywords)
 		if not is_question:
 			fast_actions = self.parser.fastpath.parse(clean_input)
 			if fast_actions:
+				is_valid, error_msg = self._validate_actions(fast_actions)
+				if not is_valid:
+					result = AgentResult(
+                        reply=error_msg,
+                        actions=[],
+                        route_type=RouteType.FAST_COMMAND,
+                        intent=Intent.DEVICE_CONTROL
+                    )
+					self._save_turn(clean_input, result.reply)
+					return result
+	
 				self.action_executor(fast_actions)
 				reply = "好的，已為你處理。"
 
@@ -158,9 +183,9 @@ class SmartHomeAgent:
 				for action in fast_actions:
 					action_type = str(action.get("type", ""))
 					if action_type == "SET_TEMP":
-						self.state.setpoint_temp = action.get("value")
+						self.state.set_state(setpoint_temp=action.get("value"))
 					elif action_type == "FAN":
-						self.state.fan_state = action.get("state")
+						self.state.set_state(fan_state=action.get("state"))
 					elif action_type == "LED":
 						loc = str(action.get("location", "UNKNOWN")).upper()
 						self.state.led_states[loc] = action.get("state")
@@ -176,7 +201,16 @@ class SmartHomeAgent:
 		else:
 			print(f"偵測到疑問句 '{clean_input}'，跳過 FastPath，準備交給 LLM...")
 		memory_context = self.memory.get_context(limit=5)
-		llm_reply = self.llm_responder(clean_input, memory_context)
+		current_status_info = (
+            f"[系統當前硬體狀態] "
+            f"冷氣設定溫度: {self.state.setpoint_temp}°C, (重要限制：冷氣只能設定在 18 到 30 度之間，若使用者要求超出範圍，請委婉拒絕), "
+            f"風扇狀態: {self.state.fan_state}, "
+            f"燈光狀態: 客廳 {self.state.led_states.get('LIVING', 'off')}, "
+            f"廚房 {self.state.led_states.get('KITCHEN', 'off')}, "
+            f"客房 {self.state.led_states.get('GUEST', 'off')}"
+        )
+		full_context = f"{current_status_info}\n{memory_context}"
+		llm_reply = self.llm_responder(clean_input, full_context)
 		self.state.set_state(
 			status="llm_reply",
 			llm_reply=llm_reply,
