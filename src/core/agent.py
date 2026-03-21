@@ -114,6 +114,19 @@ class SmartHomeAgent:
 			)
 			self._save_turn(clean_input, reply)
 			return out
+		
+		exit_keywords = ["掰掰", "再見", "結束", "退出", "待機"]
+		if any(ek in clean_input for ek in exit_keywords):
+			reply = "好的，我先休息囉，有需要請隨時叫我！"
+			out = AgentResult(
+                reply=reply,
+                actions=[{"type": "ENTER_STANDBY"}],
+                route_type=RouteType.FAST_COMMAND,
+                intent=Intent.SYSTEM,
+            )
+			self._save_turn(clean_input, reply)
+			return out
+
 
 		decision = self.router.route(clean_input)
 		# 如果沒有傳入新值，就沿用 state 目前保留的數值
@@ -189,6 +202,7 @@ class SmartHomeAgent:
 					elif action_type == "LED":
 						loc = str(action.get("location", "UNKNOWN")).upper()
 						self.state.led_states[loc] = action.get("state")
+						self.state.set_state(led_states=self.state.led_states)
 
 				result = AgentResult(
 					reply=reply,
