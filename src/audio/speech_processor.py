@@ -94,5 +94,5 @@ class SpeechProcessor:
 if __name__ == "__main__":
     processor = SpeechProcessor()
     text = processor.keyboard_input()      # 先用鍵盤測試
-    # text = processor.speech_to_text()    # 改成這行即可測試真實語音
+    #text = processor.speech_to_text()    # 改成這行即可測試真實語音
     processor.text_to_speech(f"我聽到您說：{text}")

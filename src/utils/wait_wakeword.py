@@ -12,7 +12,10 @@ except Exception:
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parents[2] 
-PPN_PATH = BASE_DIR / "data" / "models" / "wakeword.ppn"
+PPN_PATHS = [
+    BASE_DIR / "models" / "wakeword.ppn",
+    BASE_DIR / "data" / "models" / "wakeword.ppn",
+]
 
 def wait_for_wake_word():
     """
@@ -31,10 +34,11 @@ def wait_for_wake_word():
         print("錯誤: 找不到 PICOVOICE_API_KEY，請檢查 .env 檔案")
         return False
 
-    # 檢查 .ppn 檔案是否存在
-    if not PPN_PATH.exists():
-        print(f"錯誤: 找不到模型檔 {PPN_PATH}")
-        print("請確認檔案已上傳至 data/models/ 資料夾中")
+    # 檢查 .ppn 檔案是否存在（優先使用專案根目錄 models/）
+    ppn_path = next((p for p in PPN_PATHS if p.exists()), None)
+    if ppn_path is None:
+        print("錯誤: 找不到 wakeword.ppn 模型檔")
+        print(f"已檢查路徑: {PPN_PATHS[0]}、{PPN_PATHS[1]}")
         return False
 
     porcupine = None
@@ -43,7 +47,7 @@ def wait_for_wake_word():
 
     try:
         # 初始化 Porcupine
-        porcupine = pvporcupine.create(access_key=access_key, keyword_paths=[str(PPN_PATH)])
+        porcupine = pvporcupine.create(access_key=access_key, keyword_paths=[str(ppn_path)])
         pa = pyaudio.PyAudio()
 
         # 開啟麥克風串流
