@@ -208,6 +208,7 @@ def main() -> None:
                 result = agent.handle(
                     clean_input,
                     current_temp=state.setpoint_temp,
+                    current_temp=state.setpoint_temp,
                     ambient_temp=state.ambient_temp,
                 )
 
