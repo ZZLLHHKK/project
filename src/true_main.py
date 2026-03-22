@@ -6,7 +6,6 @@ from typing import Any, Dict, List, Optional, Tuple
 
 # 先設定環境變數，避免某些模組在 import 時就讀取到錯誤設定
 os.environ["DHT11_ENABLED"] = "1"
-os.environ["MOCK_GPIO"] = "0"
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -22,13 +21,6 @@ from src.devices.device_controller import DeviceController
 from src.llm.llm_engine import LLMEngine
 from src.llm.prompt_builder import PromptBuilder
 
-try:
-    from src.utils.wait_wakeword import wait_for_wake_word
-
-    HAS_WAKEWORD_ENGINE = True
-except Exception:
-    wait_for_wake_word = None  # type: ignore
-    HAS_WAKEWORD_ENGINE = False
 
 
 def print_dashboard(state: StateManager) -> None:
@@ -64,10 +56,48 @@ def read_environment(device: DeviceController) -> Tuple[Optional[int], Optional[
     return temp, humidity
 
 
+# 喚醒詞引擎
+try:
+    from src.utils.wait_wakeword import wait_for_wake_word
+
+    HAS_WAKEWORD_ENGINE = True
+except Exception:
+    wait_for_wake_word = None  # type: ignore
+    HAS_WAKEWORD_ENGINE = False
+
+
 def is_wake_word(text: str) -> bool:
     clean = (text or "").strip().lower()
     wake_words  = ["hi my pi","嗨", "管家", "my pi", "my pie"]
     return any(word in clean for word in wake_words)
+
+
+def collect_text_input(speech: SpeechProcessor, is_standby: bool, use_speech: bool = True) -> str:
+    """
+    主要輸入來源：SpeechProcessor（arecord + whisper）。
+    use_speech=False 時直接走鍵盤，不嘗試語音辨識。
+    """
+    if is_standby:
+        if use_speech:
+            print("\n[🟡 待機中] 請說喚醒詞...", flush=True)
+            try:
+                text = speech.speech_to_text(duration=2)
+                if text:
+                    return text
+            except Exception as e:
+                print(f"⚠️ 語音辨識失敗: {e}")
+        return input("[🟡 待機中] 請輸入喚醒詞（或 exit 離開）: ").strip()
+
+    if use_speech:
+        print("\n[🟢 聆聽中] 🗣️ 請說指令...", flush=True)
+        try:
+            text = speech.speech_to_text()
+            if text:
+                return text
+        except Exception as e:
+            print(f"⚠️ 語音辨識失敗: {e}")
+    return input("[🟢 聆聽中] 請輸入指令（或 exit 離開）: ").strip()
+
 
 
 def build_action_executor(device: DeviceController, state: StateManager):
@@ -104,25 +134,6 @@ def build_action_executor(device: DeviceController, state: StateManager):
                 print(f"  [實體硬體] 🌡️ 冷氣設定為 {val}°C")
 
     return action_executor
-
-
-def collect_text_input(speech: SpeechProcessor, is_standby: bool) -> str:
-    """
-    主要輸入來源：SpeechProcessor（arecord + whisper）。
-    若語音失敗，回退到鍵盤輸入，避免主流程卡死。
-    """
-    if is_standby:
-        print("\n[🟡 待機中] 請說喚醒詞...", flush=True)
-        text = speech.speech_to_text(duration=2)
-        if text:
-            return text
-        return input("[🟡 待機中] 請輸入喚醒詞（或 exit 離開）: ").strip()
-
-    print("\n[🟢 聆聽中] 🗣️ 請說指令...", flush=True)
-    text = speech.speech_to_text()
-    if text:
-        return text
-    return input("[🟢 聆聽中] 請輸入指令（或 exit 離開）: ").strip()
 
 
 def main() -> None:
@@ -165,9 +176,10 @@ def main() -> None:
         print_dashboard(state)
 
         is_standby = True
-        use_wakeword_engine = HAS_WAKEWORD_ENGINE
+        has_wakeword_engine = HAS_WAKEWORD_ENGINE
+        use_speech_input = HAS_WAKEWORD_ENGINE  # Porcupine 不可用時，語音輸入也一併停用
         error_count = 0
-        max_errors = 5
+        max_errors = 3
 
         while True:
             try:
@@ -177,18 +189,19 @@ def main() -> None:
                 if env_hum is not None:
                     state.ambient_humidity = env_hum
 
-                if is_standby and use_wakeword_engine and wait_for_wake_word is not None:
+                if is_standby and has_wakeword_engine and wait_for_wake_word is not None:
                     print("\n[🟡 待機中] 麥克風喚醒詞監聽中 (HI MY PI)... ", end="", flush=True)
                     detected = wait_for_wake_word()
                     if detected:
                         print("[已偵測到喚醒詞]")
                         user_input = "hi my pi"
                     else:
-                        use_wakeword_engine = False
-                        print("\n⚠️ 喚醒詞引擎不可用，改用語音辨識流程。")
-                        user_input = collect_text_input(speech, is_standby=True)
+                        has_wakeword_engine = False
+                        use_speech_input = False
+                        print("\n⚠️ 喚醒詞引擎不可用，改用鍵盤輸入模式。")
+                        user_input = collect_text_input(speech, is_standby=True, use_speech=False)
                 else:
-                    user_input = collect_text_input(speech, is_standby=is_standby)
+                    user_input = collect_text_input(speech, is_standby=is_standby, use_speech=use_speech_input)
 
                 clean_input = (user_input or "").strip()
                 if not clean_input:
@@ -213,8 +226,10 @@ def main() -> None:
 
                 print(f"🤖 [意圖]: {result.intent.value} | [路由]: {result.route_type.value}")
                 if result.error:
+                    print(f"⚠️ [錯誤]: {result.error}")
                     speech.text_to_speech(result.error)
                 else:
+                    print(f"🔊 [語音回覆]: {result.reply}")
                     speech.text_to_speech(result.reply)
 
                 should_standby = any(

@@ -1,1 +1,0 @@
-{"ts": 1774170075, "user": "open the light", "result": {"fastpath": true, "actions": [{"type": "LED", "location": "KITCHEN", "state": "on"}, {"type": "LED", "location": "LIVING", "state": "on"}, {"type": "LED", "location": "GUEST", "state": "on"}]}}
