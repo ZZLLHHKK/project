@@ -1,100 +1,151 @@
 #!/usr/bin/env bash
-# setup.sh - 一鍵安裝專案依賴
-# 使用方式：bash scripts/setup.sh
+# setup.sh - 專案一鍵安裝（支援 desktop / pi 模式）
+# 用法：
+#   bash setup.sh --mode desktop
+#   bash setup.sh --mode pi
+#   bash setup.sh --mode desktop --skip-piper --skip-model
 
-set -e  # 錯誤立即停止
+set -euo pipefail
 
-echo "開始執行一鍵安裝..."
+MODE="desktop"
+INSTALL_PIPER=1
+INSTALL_MODEL=1
 
-# 強制切到專案根目錄（project/）
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$SCRIPT_DIR" || {
-    echo "錯誤：無法切換到專案根目錄"
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --mode)
+            MODE="${2:-desktop}"
+            shift 2
+            ;;
+        --skip-piper)
+            INSTALL_PIPER=0
+            shift
+            ;;
+        --skip-model)
+            INSTALL_MODEL=0
+            shift
+            ;;
+        -h|--help)
+            echo "Usage: bash setup.sh [--mode desktop|pi] [--skip-piper] [--skip-model]"
+            exit 0
+            ;;
+        *)
+            echo "Unknown argument: $1"
+            exit 1
+            ;;
+    esac
+done
+
+if [[ "$MODE" != "desktop" && "$MODE" != "pi" ]]; then
+    echo "錯誤：--mode 只能是 desktop 或 pi"
     exit 1
+fi
+
+PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
+cd "$PROJECT_ROOT"
+
+if [[ ! -d src || ! -d requirements ]]; then
+    echo "錯誤：請在專案根目錄執行此腳本"
+    exit 1
+fi
+
+echo "[setup] Project root: $PROJECT_ROOT"
+echo "[setup] Mode: $MODE"
+
+echo "[setup] 安裝系統依賴..."
+sudo apt update -y
+sudo apt install -y \
+    git curl wget ca-certificates \
+    python3 python3-venv python3-pip \
+    build-essential cmake pkg-config \
+    libopenblas-dev libsndfile1-dev \
+    portaudio19-dev libportaudio2 alsa-utils \
+    sox libsox-fmt-all ffmpeg \
+    graphviz graphviz-dev
+
+if [[ "$MODE" == "pi" ]]; then
+    sudo apt install -y python3-gpiozero
+fi
+
+if [[ ! -d .venv ]]; then
+    echo "[setup] 建立 .venv"
+    python3 -m venv .venv
+fi
+
+echo "[setup] 安裝 Python 套件..."
+source .venv/bin/activate
+python -m pip install --upgrade pip
+
+if [[ "$MODE" == "pi" ]]; then
+    python -m pip install -r requirements/pi.txt
+else
+    python -m pip install -r requirements/desktop.txt
+fi
+
+install_piper_runtime() {
+    local arch
+    arch="$(uname -m)"
+    local url
+
+    case "$arch" in
+        x86_64)
+            url="https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_x86_64.tar.gz"
+            ;;
+        aarch64)
+            url="https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_aarch64.tar.gz"
+            ;;
+        *)
+            echo "[setup] 不支援的架構: $arch，略過 Piper runtime 下載"
+            return
+            ;;
+    esac
+
+    if [[ -x piper/piper ]]; then
+        echo "[setup] Piper runtime 已存在，略過"
+        return
+    fi
+
+    echo "[setup] 下載 Piper runtime ($arch)..."
+    local tgz
+    tgz="/tmp/piper_runtime_${arch}.tar.gz"
+    wget -qO "$tgz" "$url"
+    tar -xzf "$tgz" -C "$PROJECT_ROOT"
+    rm -f "$tgz"
+    echo "[setup] Piper runtime 完成"
 }
 
-# 確認在正確根目錄
-if [ ! -f "requirements.txt" ] || [ ! -d "src" ]; then
-    echo "錯誤：請確認專案根目錄有 requirements.txt 和 src/ 資料夾"
-    echo "目前目錄：$(pwd)"
-    ls -la
-    exit 1
-fi
+download_default_model() {
+    local model_dir="$PROJECT_ROOT/data/models"
+    mkdir -p "$model_dir"
 
-echo "已切換到專案根目錄：$(pwd)"
-
-# Step 1: 更新系統與安裝基本工具
-echo "Step 1: 更新系統並安裝基本工具..."
-sudo apt update -y
-sudo apt install -y git python3-venv python3-pip build-essential cmake \
-    libopenblas-dev libsndfile1-dev portaudio19-dev libportaudio2 alsa-utils \
-    python3-gpiozero graphviz graphviz-dev pkg-config libsdl2-dev libsdl2-2.0-0
-
-# Step 2: 安裝 SoX
-echo "安裝 SoX..."
-sudo apt install -y sox libsox-fmt-all
-
-echo "Step 2.5: 安裝 Piper TTS 語音引擎與模型..."
-
-# Piper 引擎放在專案根目錄的 piper 資料夾
-PIPER_DIR="$SCRIPT_DIR/piper"
-# Piper 模型放在 data/models 資料夾
-MODELS_DIR="$SCRIPT_DIR/data/models"
-
-# 1. 下載 Piper 引擎 (若不存在)
-if [ ! -d "$PIPER_DIR" ] || [ ! -f "$PIPER_DIR/piper" ]; then
-    echo "尚未安裝 Piper，開始下載 (ARM64 版本)..."
-    wget https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_aarch64.tar.gz
-    
-    # 解壓縮到專案根目錄 (tar 會自動建立 piper 資料夾)
-    tar -zxvf piper_linux_aarch64.tar.gz -C "$SCRIPT_DIR/.."
-    
-    # 清理壓縮檔
-    rm piper_linux_aarch64.tar.gz
-    echo "Piper 引擎安裝完成！"
-else
-    echo "Piper 引擎已存在，跳過下載。"
-fi
-
-# 2. 下載語音模型 (若不存在)
-mkdir -p "$MODELS_DIR"
-
-MODEL_URL="https://huggingface.co/rhasspy/piper-voices/resolve/main/zh/zh_TW/taiwan/medium/zh_TW-taiwan-medium.onnx?download=true"
-MODEL_JSON_URL="https://huggingface.co/rhasspy/piper-voices/resolve/main/zh/zh_TW/taiwan/medium/zh_TW-taiwan-medium.onnx.json?download=true"
-
-if [ ! -f "$MODELS_DIR/voice.onnx" ]; then
-    echo "正在下載語音模型..."
-
-    if ! wget --server-response --progress=bar:force -O "$MODELS_DIR/voice.onnx" "$MODEL_URL"; then
-        echo "錯誤：找不到指定的 Piper 模型網址。"
-        echo "目前 zh_TW/taiwan/medium 這條路徑無法下載。"
-        exit 1
+    if [[ -f "$model_dir/voice.onnx" && -f "$model_dir/voice.onnx.json" ]]; then
+        echo "[setup] voice.onnx 已存在，略過"
+        return
     fi
 
-    if ! wget --server-response --progress=bar:force -O "$MODELS_DIR/voice.onnx.json" "$MODEL_JSON_URL"; then
-        echo "錯誤：找不到指定的 Piper 模型設定檔網址。"
-        exit 1
-    fi
+    local model_url="https://huggingface.co/rhasspy/piper-voices/resolve/main/zh/zh_CN/huayan/medium/zh_CN-huayan-medium.onnx?download=true"
+    local json_url="https://huggingface.co/rhasspy/piper-voices/resolve/main/zh/zh_CN/huayan/medium/zh_CN-huayan-medium.onnx.json?download=true"
 
-    echo "語音模型下載完成！"
+    echo "[setup] 下載預設語音模型 (zh_CN-huayan-medium)..."
+    wget -qO "$model_dir/voice.onnx" "$model_url"
+    wget -qO "$model_dir/voice.onnx.json" "$json_url"
+    echo "[setup] 語音模型完成"
+}
+
+if [[ "$INSTALL_PIPER" -eq 1 ]]; then
+    install_piper_runtime
 else
-    echo "語音模型已存在，跳過下載。"
+    echo "[setup] 依參數略過 Piper runtime"
 fi
 
-# Step 3: 建立虛擬環境與安裝套件
-if [ ! -d ".venv" ]; then
-    echo "Step 3: 建立虛擬環境 .venv..."
-    python3 -m venv .venv
+if [[ "$INSTALL_MODEL" -eq 1 ]]; then
+    download_default_model
 else
-    echo "虛擬環境 .venv 已存在。"
+    echo "[setup] 依參數略過語音模型下載"
 fi
 
-echo "Step 4: 啟用虛擬環境並安裝 Python 套件..."
-source .venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
-
-# 完成
-echo ""
-echo "安裝完成！"
-echo "啟動程式：source .venv/bin/activate && python -m src.main"
+echo
+echo "[setup] 完成"
+echo "1) source .venv/bin/activate"
+echo "2) cp .env.example .env  # 填入 GEMINI_API_KEY"
+echo "3) python -m src.main"

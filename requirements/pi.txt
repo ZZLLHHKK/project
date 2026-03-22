@@ -1,0 +1,5 @@
+-r base.txt
+
+# 僅樹莓派需要
+RPi.GPIO
+adafruit-circuitpython-dht

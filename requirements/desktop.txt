@@ -1,0 +1,7 @@
+-r base.txt
+
+# Desktop / WSL 開發常用工具
+ipython
+ipykernel
+jupyter
+pygraphviz
