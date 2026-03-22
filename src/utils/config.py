@@ -65,15 +65,15 @@ GEMINI_MODEL = "gemini-2.5-flash"
 RUNTIME_MODE = os.getenv("RUNTIME_MODE", "hardware").strip().lower()
 SPEECH_ENABLED = os.getenv(
     "SPEECH_ENABLED",
-    "0" if RUNTIME_MODE == "desktop" else "1",
+    "1",
 ).strip() not in ("0", "false", "False", "OFF", "off")
 WAKEWORD_ENABLED = os.getenv(
     "WAKEWORD_ENABLED",
-    "0" if RUNTIME_MODE == "desktop" else "1",
+    "1",
 ).strip() not in ("0", "false", "False", "OFF", "off")
 TTS_ENABLED = os.getenv(
     "TTS_ENABLED",
-    "0" if RUNTIME_MODE == "desktop" else "1",
+    "1",
 ).strip() not in ("0", "false", "False", "OFF", "off")
 
 # Desktop test defaults

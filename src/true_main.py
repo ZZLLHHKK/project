@@ -8,9 +8,9 @@ from typing import Any, Dict, List, Optional, Tuple
 RUNTIME_MODE = os.environ.get("RUNTIME_MODE", "hardware").strip().lower()
 if RUNTIME_MODE == "desktop":
     os.environ.setdefault("DHT11_ENABLED", "0")
-    os.environ.setdefault("SPEECH_ENABLED", "0")
-    os.environ.setdefault("WAKEWORD_ENABLED", "0")
-    os.environ.setdefault("TTS_ENABLED", "0")
+    os.environ.setdefault("SPEECH_ENABLED", "1")
+    os.environ.setdefault("WAKEWORD_ENABLED", "1")
+    os.environ.setdefault("TTS_ENABLED", "1")
 else:
     os.environ.setdefault("DHT11_ENABLED", "1")
     os.environ.setdefault("SPEECH_ENABLED", "1")
@@ -117,10 +117,11 @@ def is_wake_word(text: str) -> bool:
     return any(word in clean for word in wake_words)
 
 
-def collect_text_input(speech: Any, is_standby: bool, use_speech: bool = True) -> str:
+def collect_text_input(speech: Any, is_standby: bool, use_speech: bool = True) -> Tuple[str, bool]:
     """
     主要輸入來源：SpeechProcessor（arecord + whisper）。
     use_speech=False 時直接走鍵盤，不嘗試語音辨識。
+    回傳 (text, speech_ok)。speech_ok=False 代表麥克風流程失敗，主流程應降級。
     """
     if is_standby:
         if use_speech:
@@ -128,20 +129,22 @@ def collect_text_input(speech: Any, is_standby: bool, use_speech: bool = True) -
             try:
                 text = speech.speech_to_text(duration=2)
                 if text:
-                    return text
+                    return text, True
             except Exception as e:
                 print(f"⚠️ 語音辨識失敗: {e}")
-        return input("[🟡 待機中] 請輸入喚醒詞（或 exit 離開）: ").strip()
+                return input("[🟡 待機中] 請輸入喚醒詞（或 exit 離開）: ").strip(), False
+        return input("[🟡 待機中] 請輸入喚醒詞（或 exit 離開）: ").strip(), True
 
     if use_speech:
         print("\n[🟢 聆聽中] 🗣️ 請說指令...", flush=True)
         try:
             text = speech.speech_to_text()
             if text:
-                return text
+                return text, True
         except Exception as e:
             print(f"⚠️ 語音辨識失敗: {e}")
-    return input("[🟢 聆聽中] 請輸入指令（或 exit 離開）: ").strip()
+            return input("[🟢 聆聽中] 請輸入指令（或 exit 離開）: ").strip(), False
+    return input("[🟢 聆聽中] 請輸入指令（或 exit 離開）: ").strip(), True
 
 
 
@@ -189,6 +192,10 @@ def main() -> None:
     sensors_enabled = _env_flag("DHT11_ENABLED", runtime_mode != "desktop")
 
     print(f"🔧 正在初始化系統... mode={runtime_mode}")
+    if runtime_mode == "desktop":
+        print("🖥️ 桌面模式：喚醒詞/語音/TTS 預設開啟，感測器預設關閉。")
+    else:
+        print("🍓 樹莓派模式：使用實體 GPIO 與感測器。")
 
     state = StateManager()
     memory = MemoryAgent()
@@ -269,9 +276,17 @@ def main() -> None:
                         has_wakeword_engine = False
                         use_speech_input = False
                         print("\n⚠️ 喚醒詞引擎不可用，改用鍵盤輸入模式。")
-                        user_input = collect_text_input(speech, is_standby=True, use_speech=False)
+                        user_input, _ = collect_text_input(speech, is_standby=True, use_speech=False)
                 else:
-                    user_input = collect_text_input(speech, is_standby=is_standby, use_speech=use_speech_input)
+                    user_input, speech_ok = collect_text_input(
+                        speech,
+                        is_standby=is_standby,
+                        use_speech=use_speech_input,
+                    )
+                    if not speech_ok and use_speech_input:
+                        use_speech_input = False
+                        has_wakeword_engine = False
+                        print("⚠️ 麥克風流程失敗，已自動降級為鍵盤輸入模式。")
 
                 clean_input = (user_input or "").strip()
                 if not clean_input:
