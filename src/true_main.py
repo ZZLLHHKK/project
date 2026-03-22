@@ -66,7 +66,7 @@ def read_environment(device: DeviceController) -> Tuple[Optional[int], Optional[
 
 def is_wake_word(text: str) -> bool:
     clean = (text or "").strip().lower()
-    wake_words = ["hi my pi", "嗨", "管家", "my pi", "my pie"]
+    wake_words  = ["hi my pi","嗨", "管家", "my pi", "my pie"]
     return any(word in clean for word in wake_words)
 
 
