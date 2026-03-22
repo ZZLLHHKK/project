@@ -4,14 +4,28 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-# 先設定環境變數，避免某些模組在 import 時就讀取到錯誤設定
-os.environ["DHT11_ENABLED"] = "1"
+# 在 import 其他模組前先決定執行模式，避免硬體設定在載入期就被鎖死。
+RUNTIME_MODE = os.environ.get("RUNTIME_MODE", "hardware").strip().lower()
+if RUNTIME_MODE == "desktop":
+    os.environ.setdefault("DHT11_ENABLED", "0")
+    os.environ.setdefault("SPEECH_ENABLED", "0")
+    os.environ.setdefault("WAKEWORD_ENABLED", "0")
+    os.environ.setdefault("TTS_ENABLED", "0")
+else:
+    os.environ.setdefault("DHT11_ENABLED", "1")
+    os.environ.setdefault("SPEECH_ENABLED", "1")
+    os.environ.setdefault("WAKEWORD_ENABLED", "1")
+    os.environ.setdefault("TTS_ENABLED", "1")
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.audio.speech_processor import SpeechProcessor
+try:
+    from src.audio.speech_processor import SpeechProcessor
+except Exception:
+    SpeechProcessor = None  # type: ignore[assignment]
+
 from src.core.agent import SmartHomeAgent
 from src.core.memory_agent import MemoryAgent
 from src.core.parser import DEFAULT_PARSER
@@ -20,6 +34,33 @@ from src.core.state_manager import StateManager
 from src.devices.device_controller import DeviceController
 from src.llm.llm_engine import LLMEngine
 from src.llm.prompt_builder import PromptBuilder
+
+
+def _env_flag(name: str, default: bool) -> bool:
+    val = os.environ.get(name)
+    if val is None:
+        return default
+    return val.strip().lower() not in ("0", "false", "off", "no")
+
+
+class ConsoleSpeech:
+    """Desktop fallback for speech input/output when audio engines are disabled."""
+
+    def speech_to_text(self, duration: int = 5) -> str:
+        return ""
+
+    def text_to_speech(self, text: str) -> None:
+        print(f"🔊 [文字語音模擬]: {text}")
+
+
+def say(speech: Any, text: str, tts_enabled: bool) -> None:
+    if tts_enabled and hasattr(speech, "text_to_speech"):
+        try:
+            speech.text_to_speech(text)
+            return
+        except Exception as e:
+            print(f"⚠️ TTS 播放失敗，改為文字輸出: {e}")
+    print(f"🔊 [回覆]: {text}")
 
 
 
@@ -57,22 +98,26 @@ def read_environment(device: DeviceController) -> Tuple[Optional[int], Optional[
 
 
 # 喚醒詞引擎
-try:
-    from src.utils.wait_wakeword import wait_for_wake_word
+if _env_flag("WAKEWORD_ENABLED", RUNTIME_MODE != "desktop"):
+    try:
+        from src.utils.wait_wakeword import wait_for_wake_word
 
-    HAS_WAKEWORD_ENGINE = True
-except Exception:
+        HAS_WAKEWORD_ENGINE = True
+    except Exception:
+        wait_for_wake_word = None  # type: ignore
+        HAS_WAKEWORD_ENGINE = False
+else:
     wait_for_wake_word = None  # type: ignore
     HAS_WAKEWORD_ENGINE = False
 
 
 def is_wake_word(text: str) -> bool:
     clean = (text or "").strip().lower()
-    wake_words  = ["hi my pi","嗨", "管家", "my pi", "my pie"]
+    wake_words = ["hi my pi", "嗨", "管家", "my pi", "my pie"]
     return any(word in clean for word in wake_words)
 
 
-def collect_text_input(speech: SpeechProcessor, is_standby: bool, use_speech: bool = True) -> str:
+def collect_text_input(speech: Any, is_standby: bool, use_speech: bool = True) -> str:
     """
     主要輸入來源：SpeechProcessor（arecord + whisper）。
     use_speech=False 時直接走鍵盤，不嘗試語音辨識。
@@ -137,12 +182,36 @@ def build_action_executor(device: DeviceController, state: StateManager):
 
 
 def main() -> None:
-    print("🔧 正在初始化實體硬體與語音系統...")
+    runtime_mode = os.environ.get("RUNTIME_MODE", "hardware").strip().lower()
+    speech_enabled = _env_flag("SPEECH_ENABLED", runtime_mode != "desktop")
+    wakeword_enabled = _env_flag("WAKEWORD_ENABLED", runtime_mode != "desktop")
+    tts_enabled = _env_flag("TTS_ENABLED", runtime_mode != "desktop")
+    sensors_enabled = _env_flag("DHT11_ENABLED", runtime_mode != "desktop")
+
+    print(f"🔧 正在初始化系統... mode={runtime_mode}")
 
     state = StateManager()
     memory = MemoryAgent()
     router = Router()
-    speech = SpeechProcessor()
+
+    if runtime_mode == "desktop":
+        state.ambient_temp = int(os.environ.get("DESKTOP_AMBIENT_TEMP", state.ambient_temp or 26))
+        state.ambient_humidity = int(os.environ.get("DESKTOP_AMBIENT_HUMIDITY", state.ambient_humidity or 60))
+
+    speech: Any = ConsoleSpeech()
+    if SpeechProcessor is not None and (speech_enabled or tts_enabled):
+        try:
+            speech = SpeechProcessor()
+        except Exception as e:
+            print(f"⚠️ 語音系統初始化失敗，改用文字模式: {e}")
+            speech_enabled = False
+            wakeword_enabled = False
+            tts_enabled = False
+    elif speech_enabled or tts_enabled:
+        print("⚠️ SpeechProcessor 不可用，已切換為文字模式。")
+        speech_enabled = False
+        wakeword_enabled = False
+        tts_enabled = False
 
     prompt_builder = PromptBuilder()
     llm = LLMEngine(prompt_builder=prompt_builder)
@@ -172,22 +241,23 @@ def main() -> None:
         )
 
         print("✅ 系統準備就緒！")
-        speech.text_to_speech("系統已經啟動，隨時可以叫我。")
+        say(speech, "系統已經啟動，隨時可以叫我。", tts_enabled)
         print_dashboard(state)
 
         is_standby = True
-        has_wakeword_engine = HAS_WAKEWORD_ENGINE
-        use_speech_input = HAS_WAKEWORD_ENGINE  # Porcupine 不可用時，語音輸入也一併停用
+        has_wakeword_engine = HAS_WAKEWORD_ENGINE and wakeword_enabled and speech_enabled
+        use_speech_input = speech_enabled
         error_count = 0
         max_errors = 3
 
         while True:
             try:
-                env_temp, env_hum = read_environment(device)
-                if env_temp is not None:
-                    state.ambient_temp = env_temp
-                if env_hum is not None:
-                    state.ambient_humidity = env_hum
+                if sensors_enabled:
+                    env_temp, env_hum = read_environment(device)
+                    if env_temp is not None:
+                        state.ambient_temp = env_temp
+                    if env_hum is not None:
+                        state.ambient_humidity = env_hum
 
                 if is_standby and has_wakeword_engine and wait_for_wake_word is not None:
                     print("\n[🟡 待機中] 麥克風喚醒詞監聽中 (HI MY PI)... ", end="", flush=True)
@@ -208,13 +278,13 @@ def main() -> None:
                     continue
 
                 if clean_input.lower() in ["exit", "quit"]:
-                    speech.text_to_speech("系統關閉中，再見。")
+                    say(speech, "系統關閉中，再見。", tts_enabled)
                     break
 
                 if is_standby:
                     if is_wake_word(clean_input):
                         is_standby = False
-                        speech.text_to_speech("我在，請說！")
+                        say(speech, "我在，請說！", tts_enabled)
                     continue
 
                 print("\n🧠 Agent 思考中...")
@@ -227,10 +297,10 @@ def main() -> None:
                 print(f"🤖 [意圖]: {result.intent.value} | [路由]: {result.route_type.value}")
                 if result.error:
                     print(f"⚠️ [錯誤]: {result.error}")
-                    speech.text_to_speech(result.error)
+                    say(speech, result.error, tts_enabled)
                 else:
                     print(f"🔊 [語音回覆]: {result.reply}")
-                    speech.text_to_speech(result.reply)
+                    say(speech, result.reply, tts_enabled)
 
                 should_standby = any(
                     isinstance(action, dict) and action.get("type") == "ENTER_STANDBY"
@@ -245,7 +315,7 @@ def main() -> None:
                 error_count = 0
 
             except KeyboardInterrupt:
-                speech.text_to_speech("強制中斷，系統關閉中。")
+                say(speech, "強制中斷，系統關閉中。", tts_enabled)
                 break
             except Exception as e:
                 error_count += 1

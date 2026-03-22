@@ -60,6 +60,27 @@ LANGUAGE = "auto"                    # whisper 語言代碼 (中英適用)
 GEMINI_MODEL = "gemini-2.5-flash"
 
 # -------------------------
+# Runtime mode
+# -------------------------
+RUNTIME_MODE = os.getenv("RUNTIME_MODE", "hardware").strip().lower()
+SPEECH_ENABLED = os.getenv(
+    "SPEECH_ENABLED",
+    "0" if RUNTIME_MODE == "desktop" else "1",
+).strip() not in ("0", "false", "False", "OFF", "off")
+WAKEWORD_ENABLED = os.getenv(
+    "WAKEWORD_ENABLED",
+    "0" if RUNTIME_MODE == "desktop" else "1",
+).strip() not in ("0", "false", "False", "OFF", "off")
+TTS_ENABLED = os.getenv(
+    "TTS_ENABLED",
+    "0" if RUNTIME_MODE == "desktop" else "1",
+).strip() not in ("0", "false", "False", "OFF", "off")
+
+# Desktop test defaults
+DESKTOP_AMBIENT_TEMP = int(os.getenv("DESKTOP_AMBIENT_TEMP", "26"))
+DESKTOP_AMBIENT_HUMIDITY = int(os.getenv("DESKTOP_AMBIENT_HUMIDITY", "60"))
+
+# -------------------------
 # Temperature constraints
 # -------------------------
 MIN_TEMP = 18.0
