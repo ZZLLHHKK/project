@@ -7,9 +7,15 @@
 
 from __future__ import annotations
 
+import sys
 import subprocess
 from pathlib import Path
 from typing import Optional
+
+# 確保專案根目錄在 sys.path 中（直接執行本檔時需要）
+_PROJECT_ROOT = str(Path(__file__).resolve().parent.parent.parent)
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
 
 # 從新架構的 utils 引入配置與 TTS（未來移到 audio/ 後可改相對 import）
 from src.utils.config import (
@@ -93,6 +99,6 @@ class SpeechProcessor:
 # ====================== 測試區塊 ======================
 if __name__ == "__main__":
     processor = SpeechProcessor()
-    text = processor.keyboard_input()      # 先用鍵盤測試
-    #text = processor.speech_to_text()    # 改成這行即可測試真實語音
+    #text = processor.keyboard_input()      # 先用鍵盤測試
+    text = processor.speech_to_text()    # 改成這行即可測試真實語音
     processor.text_to_speech(f"我聽到您說：{text}")
