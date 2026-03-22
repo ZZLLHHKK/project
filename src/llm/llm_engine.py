@@ -125,7 +125,7 @@ class LLMEngine:
                 self.service_mode = "quota_exceeded"
                 return {
                     "actions": [],
-                    "reply": "語意服務額度已用盡",
+                    "reply": "語意服務額度已用盡，改用快速指令試試吧!",
                     "intent": "quota_exceeded",
                 }
             self.service_mode = "error"
