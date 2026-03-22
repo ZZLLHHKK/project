@@ -1,13 +1,37 @@
 import os
+import ctypes
+import sys
+import time
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+
+
+
+# ==========================================
+# 🔇 抑制 ALSA 無用警告訊息
+# ==========================================
+try:
+    ERROR_HANDLER_FUNC = ctypes.CFUNCTYPE(
+        None, ctypes.c_char_p, ctypes.c_int,
+        ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p
+    )
+
+    def _alsa_error_handler(filename, line, function, err, fmt):
+        pass  # 靜默忽略
+
+    _c_alsa_error_handler = ERROR_HANDLER_FUNC(_alsa_error_handler)
+    asound = ctypes.cdll.LoadLibrary('libasound.so.2')
+    asound.snd_lib_error_set_handler(_c_alsa_error_handler)
+except Exception:
+    pass  # 找不到 libasound 就跳過
+
 
 # 先設定環境變數，避免某些模組在 import 時就讀取到錯誤設定
 os.environ["DHT11_ENABLED"] = "1"
 os.environ["MOCK_GPIO"] = "0"  # 如果你的 device_controller 有用到這個環境變數
 
-import sys
-import time
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -52,28 +76,26 @@ def speak(text: str) -> None:
     # os.system(f'espeak -v zh "{text}"')
 
 
-if HAS_AUDIO:
-    def listen(recognizer: "sr.Recognizer", mic: "sr.Microphone", prompt_msg: str) -> str:
-        """透過麥克風聆聽並轉換為文字"""
-        print(prompt_msg, end="", flush=True)
-        with mic as source:
-            recognizer.adjust_for_ambient_noise(source, duration=0.5)
-            try:
-                audio = recognizer.listen(source, timeout=5, phrase_time_limit=10)
-                print("\n⚙️ 語音辨識中...", end="", flush=True)
-                text = recognizer.recognize_google(audio, language="zh-TW")
-                print(f" [你說了: {text}]")
-                return text
-            except sr.WaitTimeoutError:
-                return ""
-            except sr.UnknownValueError:
-                return ""
-            except sr.RequestError as e:
-                print(f"\n❌ 語音服務連線失敗: {e}")
-                return ""
-else:
-    def listen(recognizer: Any, mic: Any, prompt_msg: str) -> str:
-        raise RuntimeError("speech_recognition 未安裝，listen() 不可用。")
+# 💡 修正點：統一使用 Any 或不指定型別，消滅 Pylance 的 Variable not allowed 警告
+def listen(recognizer: Any, mic: Any, prompt_msg: str) -> str:
+    
+    """透過麥克風聆聽並轉換為文字"""
+
+    if not HAS_AUDIO or recognizer is None or mic is None:
+        return ""
+
+    print(prompt_msg, end="", flush=True)
+    with mic as source:
+        # 自動適應環境噪音
+        recognizer.adjust_for_ambient_noise(source, duration=0.5)
+        try:
+            audio = recognizer.listen(source, timeout=5, phrase_time_limit=10)
+            print("\n⚙️ 語音辨識中...", end="", flush=True)
+            text = recognizer.recognize_google(audio, language="zh-TW")
+            print(f" [你說了: {text}]")
+            return text
+        except Exception: # 簡化錯誤處理，確保不閃退
+            return ""
 
 
 def print_dashboard(state: StateManager) -> None:
@@ -182,7 +204,7 @@ def main() -> None:
         if HAS_AUDIO:
             try:
                 recognizer = sr.Recognizer()
-                mic = sr.Microphone()
+                mic = sr.Microphone(sample_rate=16000)
                 print("✅ 語音模組載入成功！")
             except Exception as e:
                 print(f"❌ 麥克風初始化失敗，將退回鍵盤輸入模式: {e}")
@@ -248,10 +270,9 @@ def main() -> None:
                 # --- 模式 B：運作模式 ---
                 print(f"\n🧠 Agent 思考中...")
 
-                # 修正：這裡應該傳入目前環境溫度，而不是 setpoint
                 result = agent.handle(
                     clean_input,
-                    current_temp=state.ambient_temp,
+                    current_temp=state.setpoint_temp,
                     ambient_temp=state.ambient_temp,
                 )
 
