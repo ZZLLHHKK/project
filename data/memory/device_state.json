@@ -1,9 +1,9 @@
 {
-  "setpoint_temp": 28,
+  "setpoint_temp": 24,
   "fan_state": "on",
   "led_states": {
-    "KITCHEN": "on",
-    "LIVING": "on",
-    "GUEST": "on"
+    "KITCHEN": "off",
+    "LIVING": "off",
+    "GUEST": "off"
   }
 }

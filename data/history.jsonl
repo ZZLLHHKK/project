@@ -1,1 +1,5 @@
-{"ts": 1774188872, "user": "開燈", "result": {"fastpath": true, "actions": [{"type": "LED", "location": "KITCHEN", "state": "on"}, {"type": "LED", "location": "LIVING", "state": "on"}, {"type": "LED", "location": "GUEST", "state": "on"}]}}
+{"ts": 1774195079, "user": "好按幫我開燈", "result": {"fastpath": true, "actions": [{"type": "LED", "location": "KITCHEN", "state": "on"}, {"type": "LED", "location": "LIVING", "state": "on"}, {"type": "LED", "location": "GUEST", "state": "on"}]}}
+{"ts": 1774195127, "user": "客廳燈關掉", "result": {"fastpath": true, "actions": [{"type": "LED", "location": "LIVING", "state": "off"}]}}
+{"ts": 1774195161, "user": "把燈關了", "result": {"fastpath": true, "actions": [{"type": "LED", "location": "KITCHEN", "state": "off"}, {"type": "LED", "location": "LIVING", "state": "off"}, {"type": "LED", "location": "GUEST", "state": "off"}]}}
+{"ts": 1774195405, "user": "開燈", "result": {"fastpath": true, "actions": [{"type": "LED", "location": "KITCHEN", "state": "on"}, {"type": "LED", "location": "LIVING", "state": "on"}, {"type": "LED", "location": "GUEST", "state": "on"}]}}
+{"ts": 1774195460, "user": "turn off the lights", "result": {"fastpath": true, "actions": [{"type": "LED", "location": "KITCHEN", "state": "off"}, {"type": "LED", "location": "LIVING", "state": "off"}, {"type": "LED", "location": "GUEST", "state": "off"}]}}

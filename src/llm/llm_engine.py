@@ -16,6 +16,7 @@ class LLMEngine:
         self.prompt_builder = prompt_builder
         self._fence_re_1 = re.compile(r"^`{3}(?:json)?\s*", re.IGNORECASE)
         self._fence_re_2 = re.compile(r"\s*`{3}$", re.IGNORECASE)
+        self.service_mode = "normal"
 
     def _try_load_dotenv(self) -> None:
         try:
@@ -115,10 +116,21 @@ class LLMEngine:
                 contents=prompt,
             )
             response_text = getattr(response, "text", "") or ""
+            self.service_mode = "normal"
             return self._parse_response(response_text)
         except Exception as e:
+            msg = str(e)
+            lower_msg = msg.lower()
+            if any(k in lower_msg for k in ("quota", "rate limit", "resource_exhausted", "429", "insufficient")):
+                self.service_mode = "quota_exceeded"
+                return {
+                    "actions": [],
+                    "reply": "語意服務額度已用盡",
+                    "intent": "quota_exceeded",
+                }
+            self.service_mode = "error"
             return {
                 "actions": [],
-                "reply": f"抱歉，我目前無法連線到語意服務：{e}",
+                "reply": f"抱歉，我目前無法連線到語意服務：{msg}",
                 "intent": "gemini_error",
             }

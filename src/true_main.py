@@ -9,7 +9,7 @@ RUNTIME_MODE = os.environ.get("RUNTIME_MODE", "hardware").strip().lower()
 if RUNTIME_MODE == "desktop":
     os.environ.setdefault("DHT11_ENABLED", "0")
     os.environ.setdefault("SPEECH_ENABLED", "1")
-    os.environ.setdefault("WAKEWORD_ENABLED", "1")
+    os.environ.setdefault("WAKEWORD_ENABLED", "0")
     os.environ.setdefault("TTS_ENABLED", "1")
 else:
     os.environ.setdefault("DHT11_ENABLED", "1")
@@ -113,7 +113,7 @@ else:
 
 def is_wake_word(text: str) -> bool:
     clean = (text or "").strip().lower()
-    wake_words = ["hi my pi", "嗨", "管家", "my pi", "my pie"]
+    wake_words = ["hi my pi", "my pi", "my pie", "hi", "開機", "在嗎", "醒來", "嗨"]
     return any(word in clean for word in wake_words)
 
 
@@ -138,13 +138,37 @@ def collect_text_input(speech: Any, is_standby: bool, use_speech: bool = True) -
     if use_speech:
         print("\n[🟢 聆聽中] 🗣️ 請說指令...", flush=True)
         try:
-            text = speech.speech_to_text()
+            text = speech.speech_to_text(duration=getattr(speech, "default_duration", 5))
             if text:
                 return text, True
         except Exception as e:
             print(f"⚠️ 語音辨識失敗: {e}")
             return input("[🟢 聆聽中] 請輸入指令（或 exit 離開）: ").strip(), False
     return input("[🟢 聆聽中] 請輸入指令（或 exit 離開）: ").strip(), True
+
+
+def print_controls() -> None:
+    print("\n[控制指令]")
+    print("  /help               顯示控制指令")
+    print("  /k                  快速切到鍵盤命令輸入")
+    print("  /v                  快速切到語音命令輸入")
+    print("  /mode voice         命令輸入改為語音")
+    print("  /mode keyboard      命令輸入改為鍵盤")
+    print("  /rec <秒數>         設定語音錄音秒數（1~15）")
+    print("  /voice              顯示目前語音模型")
+    print("  /voice <模型路徑>   切換 Piper 語音模型 (.onnx)")
+    print("  /status             顯示目前輸入模式與錄音秒數")
+    print("  /standby            立即進入待機")
+    print("  /exit               結束程式")
+
+
+def detect_capture_status(speech: Any) -> str:
+    if hasattr(speech, "describe_capture_path"):
+        try:
+            return str(speech.describe_capture_path())
+        except Exception:
+            return "unknown"
+    return "keyboard(console)"
 
 
 
@@ -193,7 +217,7 @@ def main() -> None:
 
     print(f"🔧 正在初始化系統... mode={runtime_mode}")
     if runtime_mode == "desktop":
-        print("🖥️ 桌面模式：喚醒詞/語音/TTS 預設開啟，感測器預設關閉。")
+        print("🖥️ 桌面模式：鍵盤喚醒詞 + 語音命令 + Piper TTS。")
     else:
         print("🍓 樹莓派模式：使用實體 GPIO 與感測器。")
 
@@ -250,10 +274,23 @@ def main() -> None:
         print("✅ 系統準備就緒！")
         say(speech, "系統已經啟動，隨時可以叫我。", tts_enabled)
         print_dashboard(state)
+        print_controls()
 
         is_standby = True
         has_wakeword_engine = HAS_WAKEWORD_ENGINE and wakeword_enabled and speech_enabled
-        use_speech_input = speech_enabled
+        use_command_speech_input = speech_enabled
+        command_record_seconds = int(os.environ.get("COMMAND_RECORD_SECONDS", "5"))
+        command_record_seconds = max(1, min(15, command_record_seconds))
+
+        if hasattr(speech, "default_duration"):
+            try:
+                speech.default_duration = command_record_seconds
+            except Exception:
+                pass
+
+        capture_status = detect_capture_status(speech)
+        print(f"[啟動狀態] standby_input=keyboard, command_input={'voice' if use_command_speech_input else 'keyboard'}, capture={capture_status}, rec={command_record_seconds}s")
+
         error_count = 0
         max_errors = 3
 
@@ -274,22 +311,95 @@ def main() -> None:
                         user_input = "hi my pi"
                     else:
                         has_wakeword_engine = False
-                        use_speech_input = False
                         print("\n⚠️ 喚醒詞引擎不可用，改用鍵盤輸入模式。")
                         user_input, _ = collect_text_input(speech, is_standby=True, use_speech=False)
+                elif is_standby:
+                    # 未使用喚醒詞引擎時，待機階段固定走鍵盤喚醒詞。
+                    user_input, _ = collect_text_input(speech, is_standby=True, use_speech=False)
                 else:
                     user_input, speech_ok = collect_text_input(
                         speech,
                         is_standby=is_standby,
-                        use_speech=use_speech_input,
+                        use_speech=use_command_speech_input,
                     )
-                    if not speech_ok and use_speech_input:
-                        use_speech_input = False
-                        has_wakeword_engine = False
-                        print("⚠️ 麥克風流程失敗，已自動降級為鍵盤輸入模式。")
+                    if not speech_ok and use_command_speech_input:
+                        use_command_speech_input = False
+                        print("⚠️ 命令語音辨識失敗，已自動降級為鍵盤輸入模式。")
 
                 clean_input = (user_input or "").strip()
                 if not clean_input:
+                    continue
+
+                # 互動控制指令：可在執行中切換輸入模式與錄音長度
+                lower_input = clean_input.lower()
+                if lower_input.startswith("/"):
+                    if lower_input == "/help":
+                        print_controls()
+                        continue
+                    if lower_input == "/k":
+                        use_command_speech_input = False
+                        print("⌨️ 命令輸入已快速切換為鍵盤模式。")
+                        continue
+                    if lower_input == "/v":
+                        use_command_speech_input = True
+                        print("🎙️ 命令輸入已快速切換為語音模式。")
+                        continue
+                    if lower_input in ("/exit", "/quit"):
+                        say(speech, "系統關閉中，再見。", tts_enabled)
+                        break
+                    if lower_input == "/voice":
+                        current_voice = os.environ.get("TTS_MODEL_PATH", "(default) data/models/voice.onnx")
+                        print(f"[語音模型] {current_voice}")
+                        continue
+                    if lower_input.startswith("/voice "):
+                        model_path = clean_input.split(maxsplit=1)[1].strip()
+                        if not model_path:
+                            print("⚠️ 用法: /voice /path/to/model.onnx")
+                            continue
+                        p = Path(model_path)
+                        if not p.exists():
+                            print(f"⚠️ 找不到模型檔: {model_path}")
+                            continue
+                        if p.suffix.lower() != ".onnx":
+                            print("⚠️ 模型副檔名需為 .onnx")
+                            continue
+                        os.environ["TTS_MODEL_PATH"] = str(p)
+                        print(f"🗣️ 已切換語音模型: {p}")
+                        continue
+                    if lower_input == "/status":
+                        mode_text = "voice" if use_command_speech_input else "keyboard"
+                        llm_status = getattr(llm, "service_mode", "unknown")
+                        capture_status = detect_capture_status(speech)
+                        print(f"[狀態] standby={is_standby}, command_input={mode_text}, capture={capture_status}, rec={command_record_seconds}s, llm={llm_status}")
+                        continue
+                    if lower_input == "/standby":
+                        is_standby = True
+                        print("💤 已切換到待機模式。")
+                        continue
+                    if lower_input.startswith("/mode "):
+                        target = lower_input.split(maxsplit=1)[1].strip()
+                        if target == "voice":
+                            use_command_speech_input = True
+                            print("🎙️ 命令輸入已切換為語音模式。")
+                        elif target == "keyboard":
+                            use_command_speech_input = False
+                            print("⌨️ 命令輸入已切換為鍵盤模式。")
+                        else:
+                            print("⚠️ 用法: /mode voice 或 /mode keyboard")
+                        continue
+                    if lower_input.startswith("/rec "):
+                        raw = lower_input.split(maxsplit=1)[1].strip()
+                        try:
+                            sec = int(raw)
+                            sec = max(1, min(15, sec))
+                            command_record_seconds = sec
+                            if hasattr(speech, "default_duration"):
+                                speech.default_duration = command_record_seconds
+                            print(f"⏱️ 命令錄音秒數已設定為 {command_record_seconds}s")
+                        except Exception:
+                            print("⚠️ 用法: /rec 3（秒數範圍 1~15）")
+                        continue
+                    print("⚠️ 未知控制指令，輸入 /help 查看可用指令。")
                     continue
 
                 if clean_input.lower() in ["exit", "quit"]:

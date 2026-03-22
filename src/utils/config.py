@@ -53,8 +53,9 @@ HISTORY_KEEP = 5
 FASTER_WHISPER_MODEL = "base" 
 WHISPER_MODEL_NAME = FASTER_WHISPER_MODEL
 
-# 錄音配置 
-DEVICE_PORT = "plughw:3,0"           # 樹莓派錄音接口 (在終端機 arecord -l)
+# 錄音配置
+# 可用環境變數覆蓋，例如：export DEVICE_PORT="default" 或 "plughw:1,0"
+DEVICE_PORT = os.getenv("DEVICE_PORT", "plughw:3,0")
 RECORDING_DURATION = 5               # 錄音秒數
 LANGUAGE = "auto"                    # whisper 語言代碼 (中英適用)
 GEMINI_MODEL = "gemini-2.5-flash"
