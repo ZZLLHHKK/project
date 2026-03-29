@@ -28,9 +28,7 @@ class FanController:
     def setup(self) -> None:
         GPIO.setwarnings(False)
         GPIO.setmode(GPIO.BCM)
-        GPIO.setup(config.RELAY_FAN, GPIO.OUT)
-        # OFF by default
-        GPIO.output(config.RELAY_FAN, config.RELAY_OFF)
+        GPIO.setup(config.RELAY_FAN, GPIO.OUT, initial=GPIO.HIGH)
 
     def set_fan(self, state: str) -> None:
         st = (state or "").strip().lower()

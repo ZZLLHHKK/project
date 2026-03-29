@@ -26,7 +26,6 @@ class StateManager:
         self.error_message: str | None = None
         self.ambient_temp: int | None = None
         self.setpoint_temp: int = 25
-        self.auto_cool_enabled: bool = False
         self.fan_state: str = "off"
         self.led_states: dict = {"KITCHEN": "off", "LIVING": "off", "GUEST": "off"}
         self.ambient_humidity: int | None = None
@@ -84,7 +83,6 @@ class StateManager:
             "error_message": self.error_message,
             "ambient_temp": self.ambient_temp,
             "setpoint_temp": self.setpoint_temp,
-            "auto_cool_enabled": self.auto_cool_enabled,
             "fan_state": self.fan_state,
             "led_states": dict(self.led_states),
             "ambient_humidity": self.ambient_humidity,

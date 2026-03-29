@@ -13,6 +13,7 @@ Notes
 
 from pathlib import Path
 import os
+import platform
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]  # 調整層級到 project 根目錄
 # 重要 : 這裡要根據你的檔案目錄來決定, 要找出 project root 路徑才會對
@@ -40,7 +41,8 @@ SOUND_GET = AUDIO_DIR / "dong_ding.wav"
 
 # --- TTS (Piper 語音引擎) 設定 ---
 PIPER_DIR = PROJECT_ROOT / "piper"  
-PIPER_EXE = PIPER_DIR / "piper"
+_arch = platform.machine()
+PIPER_EXE = PIPER_DIR / ("piper_arm/piper" if _arch == "aarch64" else "piper")
 
 # 語音模型統一下載到 models 資料夾
 MODELS_DIR = DATA_DIR / "models"
@@ -120,7 +122,7 @@ DIGIT_OFF = 0  # GPIO.LOW
 # -------------------------
 # LED / Fan GPIO mapping (BCM) (from controller_gemini_gpio.py)
 # -------------------------
-RELAY_FAN = 24
+RELAY_FAN = 21
 
 LED_RED    = 22   # kitchen
 LED_GREEN  = 10   # living
@@ -154,11 +156,6 @@ DHT11_PIN = int(os.getenv("DHT11_PIN", "25"))  # BCM pin number (default GPIO17)
 # Read interval (seconds). DHT11 is slow; 2s is safe.
 DHT11_READ_INTERVAL_SEC = float(os.getenv("DHT11_READ_INTERVAL_SEC", "2.0"))
 
-# Auto cooling control (using FAN relay as the actuator).
-# If ambient >= setpoint + hysteresis -> FAN ON
-# If ambient <= setpoint - hysteresis -> FAN OFF
-AUTO_COOL_ENABLED = os.getenv("AUTO_COOL_ENABLED", "1").strip() not in ("0", "false", "False", "OFF", "off")
-AUTO_COOL_HYST = float(os.getenv("AUTO_COOL_HYST", "0.5"))
 # After a manual FAN command, pause auto control for a while (seconds)
 AUTO_PAUSE_AFTER_MANUAL_FAN_SEC = int(os.getenv("AUTO_PAUSE_AFTER_MANUAL_FAN_SEC", "120"))
 
