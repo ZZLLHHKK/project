@@ -23,6 +23,12 @@ class DeviceController:
         self.led.cleanup()
         self.seven_seg.cleanup()
         self.dht11.stop()
+        # 所有硬體關閉後，統一清理 GPIO（只做一次）
+        try:
+            import RPi.GPIO as GPIO
+            GPIO.cleanup()
+        except Exception:
+            pass
 
     # 風扇控制
     def set_fan(self, state):

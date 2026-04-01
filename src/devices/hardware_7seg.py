@@ -104,7 +104,3 @@ class SevenSegDisplay:
             self._all_digits_off()
         except Exception:
             pass
-        try:
-            GPIO.cleanup()
-        except Exception:
-            pass

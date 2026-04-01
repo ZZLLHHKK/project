@@ -68,7 +68,7 @@ def speak(text: str) -> None:
             env=env,
         )
         subprocess.run(
-            ["aplay", "-r", "22050", "-f", "S16_LE", "-t", "raw", "-"]
+            ["aplay", "-D", "plughw:0,0", "-r", "22050", "-f", "S16_LE", "-t", "raw", "-"]
             if use_aplay
             else ["ffplay", "-nodisp", "-autoexit", "-loglevel", "error", "-f", "s16le", "-ar", "22050", "-ac", "1", "-"],
             input=piper_proc.stdout,

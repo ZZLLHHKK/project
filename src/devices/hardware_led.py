@@ -70,8 +70,5 @@ class LedController:
     def cleanup(self) -> None:
         try:
             self.all_off()
-        finally:
-            try:
-                GPIO.cleanup()
-            except Exception:
-                pass
+        except Exception:
+            pass

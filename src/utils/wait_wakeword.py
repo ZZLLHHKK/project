@@ -99,29 +99,56 @@ def wait_for_wake_word():
     audio_stream = None
 
     try:
-        # 初始化 Porcupine
+        # 壓掉 ALSA 無害警告訊息
+        import ctypes
+        try:
+            ERROR_HANDLER_FUNC = ctypes.CFUNCTYPE(None, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p)
+            c_error_handler = ERROR_HANDLER_FUNC(lambda *_: None)
+            asound = ctypes.cdll.LoadLibrary('libasound.so.2')
+            asound.snd_lib_error_set_handler(c_error_handler)
+        except Exception:
+            pass
+
         porcupine = pvporcupine.create(access_key=access_key, keyword_paths=[str(ppn_path)])
         pa = pyaudio.PyAudio()
 
-        # 開啟麥克風串流
+        # 自動尋找 USB 麥克風裝置
+        input_device_index = None
+        for i in range(pa.get_device_count()):
+            info = pa.get_device_info_by_index(i)
+            if info['maxInputChannels'] > 0 and 'USB' in info.get('name', ''):
+                input_device_index = i
+                break
+
+        if input_device_index is None:
+            print("錯誤: 找不到 USB 麥克風裝置")
+            return False
+
+        print(f"[Wakeword] 使用麥克風裝置: index={input_device_index}")
+
+
+        DEVICE_RATE = 48000
+        PORCUPINE_RATE = porcupine.sample_rate  # 16000
+        RATIO = DEVICE_RATE // PORCUPINE_RATE   # 3
+
+        # 用裝置原生 48000 Hz 開啟麥克風
         audio_stream = pa.open(
-            rate=porcupine.sample_rate,
+            rate=DEVICE_RATE,
             channels=1,
             format=pyaudio.paInt16,
             input=True,
-            frames_per_buffer=porcupine.frame_length
+            input_device_index=input_device_index,
+            frames_per_buffer=porcupine.frame_length * RATIO
         )
 
-        # 開始無限迴圈，監聽聲音
         while True:
-            # 讀取麥克風資料
-            pcm = audio_stream.read(porcupine.frame_length, exception_on_overflow=False)
-            pcm = struct.unpack_from("h" * porcupine.frame_length, pcm)
+            pcm = audio_stream.read(porcupine.frame_length * RATIO, exception_on_overflow=False)
+            pcm = struct.unpack_from("h" * (porcupine.frame_length * RATIO), pcm)
 
-            # 將聲音特徵交給喚醒引擎判斷
-            result = porcupine.process(pcm)
+            # 每 3 個取樣點取 1 個，降採樣 48000 → 16000
+            downsampled = pcm[::RATIO]
 
-            # result >= 0 代表偵測到喚醒詞
+            result = porcupine.process(downsampled)
             if result >= 0:
                 return True
 
