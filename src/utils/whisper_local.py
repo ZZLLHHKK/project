@@ -54,8 +54,8 @@ def transcribe_latest_wav(
     input_wav: Optional[str] = None,
     device: str = "cpu",
     compute_type: str = "int8",                # Pi 4 最快選擇
-    beam_size: int = 3,                        # 速度與準確平衡
-    best_of: int = 3,
+    beam_size: int = 1,                        # 速度與準確平衡
+    best_of: int = 1,
     vad_filter: bool = True                    # 自動移除靜音
 ) -> str:
     """

@@ -114,8 +114,19 @@ class SmartHomeAgent:
 			)
 			self._save_turn(clean_input, reply)
 			return out
-		
-		exit_keywords = ["掰掰", "再見", "結束", "退出", "待機"]
+		shutdown_keywords = ["關機", "關閉系統", "結束程式"]
+		if any(sk in clean_input for sk in shutdown_keywords):
+			reply = "好的，系統關閉中，再見！"
+			out = AgentResult(
+				reply=reply,
+				actions=[{"type": "SHUTDOWN"}],
+				route_type=RouteType.FAST_COMMAND,
+				intent=Intent.SYSTEM,
+			)
+			self._save_turn(clean_input, reply)
+			return out
+
+		exit_keywords = ["掰掰", "再見", "結束", "退出", "待機", "拜拜"]
 		if any(ek in clean_input for ek in exit_keywords):
 			reply = "好的，我先休息囉，有需要請隨時叫我！"
 			out = AgentResult(

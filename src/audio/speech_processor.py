@@ -90,112 +90,68 @@ class SpeechProcessor:
 
         return f"voice(arecord:{self.device})"
 
-    def _has_capture_device(self) -> bool:
-        """檢查 Linux 端是否看得到錄音裝置。"""
-        # WSL 常見沒有 ALSA soundcard，但可透過 Pulse 轉發錄音。
-        if os.getenv("WSL_DISTRO_NAME"):
-            return True
-
-        try:
-            proc = subprocess.run(
-                ["arecord", "-l"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                timeout=5,
-                check=False,
-            )
-        except FileNotFoundError:
-            print("❌ 找不到 arecord，請執行：sudo apt install alsa-utils")
-            return False
-        except Exception:
-            return False
-
-        out = (proc.stdout or "").lower()
-        if "no soundcards found" in out:
-            if not self._reported_no_capture:
-                print("⚠️ 目前偵測不到麥克風裝置（arecord -l: no soundcards found）。")
-                print("⚠️ 若在 WSL，請改用鍵盤輸入或設定麥克風轉發。")
-                self._reported_no_capture = True
-            return False
-        return True
-
     def _record_audio(self, duration: Optional[int] = None) -> str:
-        """使用 arecord 錄音，返回 wav 路徑"""
-        if not self._has_capture_device():
-            return ""
+        """arecord pipe + 能量 VAD：說完就停，最多等 max_duration 秒。"""
+        import numpy as np
+        import wave
 
-        record_seconds = duration or self.default_duration
-        output_path = Path(RECORDINGS_DIR) / "latest.wav"
-
-        # WSL 下優先使用 Pulse 錄音（ffmpeg），通常比 ALSA arecord 穩定。
-        if os.getenv("WSL_DISTRO_NAME"):
-            pulse_wav = self._record_audio_ffmpeg_pulse(output_path, record_seconds)
-            if pulse_wav:
-                return pulse_wav
-            print("⚠️ WSL Pulse 錄音失敗，改試 arecord。")
-
-        device_candidates = [self.device]
-        if self.device != "default":
-            device_candidates.append("default")
-
-        def _cmd(device: str) -> list[str]:
-            return [
-                "arecord", "-D", device,
-                "-d", str(record_seconds),
-                "-r", "16000", "-c", "1", "-f", "S16_LE",
-                "-t", "wav", str(output_path),
-            ]
-
-        try:
-            for idx, device in enumerate(device_candidates):
-                try:
-                    subprocess.run(
-                        _cmd(device),
-                        check=True,
-                        timeout=10,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                    )
-                    if idx > 0:
-                        print(f"ℹ️ 已改用備援錄音裝置: {device}")
-                    return str(output_path)
-                except subprocess.CalledProcessError:
-                    continue
-
-            print("❌ 錄音失敗，請檢查麥克風裝置或調整 DEVICE_PORT。")
-            if output_path.exists():
-                output_path.unlink()
-            return ""
-        except subprocess.CalledProcessError:
-            print("❌ 錄音失敗，請檢查麥克風裝置")
-            if output_path.exists():
-                output_path.unlink()
-            return ""
-        except FileNotFoundError:
-            print("❌ 找不到 arecord，請執行：sudo apt install alsa-utils")
-            return ""
-
-    def _record_audio_ffmpeg_pulse(self, output_path: Path, record_seconds: int) -> str:
-        """WSL fallback: 使用 ffmpeg 從 Pulse source 錄音。"""
-        if shutil.which("ffmpeg") is None:
-            print("❌ 找不到 ffmpeg，無法使用 Pulse 錄音 fallback")
-            return ""
+        max_seconds = duration or self.default_duration
+        RATE = 16000
+        CHUNK = 1600          # 0.1 秒
+        BYTES_PER_CHUNK = CHUNK * 2  
+        ENERGY_THRESH = 500
+        SILENCE_CHUNKS = 10   # 靜音超過 1.0 秒就停
+        MIN_SPEECH_CHUNKS = 2
 
         cmd = [
-            "ffmpeg", "-hide_banner", "-loglevel", "error",
-            "-f", "pulse", "-i", "default",
-            "-t", str(record_seconds), "-ac", "1", "-ar", "16000",
-            str(output_path), "-y",
+            "arecord", "-D", self.device,
+            "-r", str(RATE), "-c", "1", "-f", "S16_LE",
+            "-t", "raw",      # 不寫檔，raw PCM 輸出到 stdout
         ]
+
         try:
-            subprocess.run(cmd, check=True, timeout=record_seconds + 6)
-            return str(output_path)
-        except Exception:
-            if output_path.exists():
-                output_path.unlink()
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        except FileNotFoundError:
+            print("❌ 找不到 arecord")
             return ""
 
+        frames = []
+        silence_count = 0
+        speech_count = 0
+
+        try:
+            for _ in range(int(max_seconds * RATE / CHUNK)):
+                data = proc.stdout.read(BYTES_PER_CHUNK)
+                if not data or len(data) < BYTES_PER_CHUNK:
+                    break
+                frames.append(data)
+                samples = np.frombuffer(data, dtype=np.int16)
+                energy = float(np.sqrt(np.mean(samples.astype(np.float32) ** 2)))
+
+                if energy > ENERGY_THRESH:
+                    speech_count += 1
+                    silence_count = 0
+                elif speech_count > 0:
+                    silence_count += 1
+                    if silence_count >= SILENCE_CHUNKS and speech_count >= MIN_SPEECH_CHUNKS:
+                        break
+        finally:
+            proc.terminate()
+            proc.wait()
+
+        if speech_count < MIN_SPEECH_CHUNKS:
+            return ""
+
+        output_path = Path(RECORDINGS_DIR) / "latest.wav"
+        with wave.open(str(output_path), "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(RATE)
+            wf.writeframes(b"".join(frames))
+
+        print(f"⏱️ VAD 錄音完成（{len(frames) * CHUNK / RATE:.1f}s / 最多 {max_seconds}s）")
+        return str(output_path)
+    
     def _transcribe(self, wav_path: str, language: str = LANGUAGE) -> str:
         """呼叫 faster-whisper 轉錄"""
         from src.utils.whisper_local import transcribe_latest_wav  # 避免循環 import

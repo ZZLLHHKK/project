@@ -431,6 +431,12 @@ def main() -> None:
                     isinstance(action, dict) and action.get("type") == "ENTER_STANDBY"
                     for action in getattr(result, "actions", [])
                 )
+                should_shutdown = any(
+                    isinstance(action, dict) and action.get("type") == "SHUTDOWN"
+                    for action in getattr(result, "actions", [])
+                )
+                if should_shutdown:
+                    break
 
                 print_dashboard(state)
                 if should_standby:
