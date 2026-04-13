@@ -1,327 +1,140 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-import sys
-from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
-# Allow direct execution: python src/core/agent.py
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-if str(PROJECT_ROOT) not in sys.path:
-	sys.path.insert(0, str(PROJECT_ROOT))
+from .memory_agent import MemoryAgent
+from .parser.fastpath_parser import FastPathParser
+from .parser.gemini_parser import GeminiParser
+from .state_manager import StateManager
 
-try:
-	from .memory_agent import MemoryAgent
-	from .router import Intent, RouteType, Router, is_system_reset_command
-	from .state_manager import StateManager
-	from .parser import DEFAULT_PARSER, ParserFacade
-except ImportError:
-	from src.core.memory_agent import MemoryAgent
-	from src.core.router import Intent, RouteType, Router, is_system_reset_command
-	from src.core.state_manager import StateManager
-	from src.core.parser import DEFAULT_PARSER, ParserFacade
+FRIENDLY_ERROR = "抱歉，我現在無法處理，請稍後再試。"
 
 
-@dataclass(slots=True)
-class AgentResult:
-	"""Unified output payload for one user turn."""
-
-	reply: str
-	actions: list[dict[str, Any]]
-	route_type: RouteType
-	intent: Intent
-	error: Optional[str] = None
+class ActionExecutionError(RuntimeError):
+    """Compatibility placeholder for older call sites."""
 
 
 class SmartHomeAgent:
-	"""Application orchestrator for one-turn processing.
+    """Main orchestrator: fastpath first, Gemini fallback, then execute and persist."""
 
-	Responsibilities:
-	1) Route user input (fast command vs llm route)
-	2) Parse command actions (fastpath + gemini fallback)
-	3) Execute actions through injected executor
-	4) Maintain state + memory
-	"""
+    def __init__(
+        self,
+        memory: Optional[MemoryAgent] = None,
+        state: Optional[StateManager] = None,
+        fastpath_parser: Optional[FastPathParser] = None,
+        gemini_parser: Optional[GeminiParser] = None,
+        device_controller: Any = None,
+    ) -> None:
+        self.memory = memory or MemoryAgent()
+        self.state = state or StateManager()
+        self.fastpath = fastpath_parser or FastPathParser()
+        self.gemini = gemini_parser or GeminiParser()
+        self.device_controller = device_controller
 
-	def __init__(
-		self,
-		router: Optional[Router] = None,
-		parser: Optional[ParserFacade] = None,
-		memory: Optional[MemoryAgent] = None,
-		state: Optional[StateManager] = None,
-		action_executor: Optional[Callable[[list[dict[str, Any]]], None]] = None,
-		llm_responder: Optional[Callable[[str, str], str]] = None,
-	) -> None:
-		self.router = router or Router()
-		self.parser = parser or DEFAULT_PARSER
-		self.memory = memory or MemoryAgent()
-		self.state = state or StateManager()
+    def _friendly_fastpath_reply(self, actions: list[dict[str, Any]]) -> str:
+        labels = {"KITCHEN": "廚房", "LIVING": "客廳", "GUEST": "客房"}
+        parts: list[str] = []
+        for action in actions:
+            action_type = str(action.get("type", "")).upper()
+            if action_type == "SET_TEMP":
+                parts.append(f"溫度已設定為 {action.get('value')} 度")
+            elif action_type == "FAN":
+                state = "開啟" if str(action.get("state", "off")).lower() == "on" else "關閉"
+                parts.append(f"風扇已{state}")
+            elif action_type == "LED":
+                location = labels.get(str(action.get("location", "")).upper(), "燈")
+                state = "開啟" if str(action.get("state", "off")).lower() == "on" else "關閉"
+                parts.append(f"{location}燈已{state}")
+        return f"好的，{'，'.join(parts)}。" if parts else "好的，已為您處理。"
 
-		# action_executor(actions) -> side effects (GPIO/API/etc.)
-		self.action_executor = action_executor or self._noop_action_executor
-		# llm_responder(user_input, memory_context) -> natural language reply
-		self.llm_responder = llm_responder or self._default_llm_responder
+    def _execute_actions(self, actions: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], Optional[str]]:
+        if not actions:
+            return [], None
+        if self.device_controller is None:
+            executed = [dict(action, success=True) for action in actions]
+            return executed, None
 
-	def _noop_action_executor(self, actions: list[dict[str, Any]]) -> None:
-		"""Default executor for development stage (no hardware side effects)."""
-		_ = actions
+        results = self.device_controller.execute_actions(actions)
+        failures = [item for item in results if not item.get("success", False)]
+        if failures:
+            return results, "device_execution_failed"
+        return results, None
 
-	def _default_llm_responder(self, user_input: str, memory_context: str) -> str:
-		"""Fallback responder before integrating real llm_engine."""
-		_ = memory_context
-		return f"我收到你的訊息：{user_input}。目前尚未接入正式 LLM 回覆模組。"
+    def _build_result(
+        self,
+        reply: str,
+        actions_executed: list[dict[str, Any]],
+        error: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return {
+            "reply": reply,
+            "actions_executed": actions_executed,
+            "state": self.state.get_state(),
+            "error": error,
+        }
 
-	def _handle_system_intent(self, user_input: str) -> Optional[AgentResult]:
-		if is_system_reset_command(user_input):
-			self.memory.clear_memory()
-			self.state.reset_conversation()
-			reply = "好的，已清除短期記憶並重置對話狀態。"
-			return AgentResult(
-				reply=reply,
-				actions=[],
-				route_type=RouteType.FAST_COMMAND,
-				intent=Intent.SYSTEM,
-			)
-		return None
+    def handle(self, user_input: str) -> dict[str, Any]:
+        clean_input = (user_input or "").strip()
+        if not clean_input:
+            return self._build_result("請告訴我你想控制的設備或需求。", [], None)
 
-	def _save_turn(self, user_input: str, reply: str) -> None:
-		self.memory.save_interaction(user_input, reply)
+        if any(keyword in clean_input for keyword in ("掰掰", "再見", "待機", "拜拜")):
+            reply = "好的，我先休息囉，有需要請隨時叫我！"
+            self.memory.add_interaction(clean_input, reply)
+            return self._build_result(reply, [{"type": "ENTER_STANDBY", "success": True}], None)
 
-	def _validate_actions(self, actions: list[dict[str, Any]]) -> tuple[bool, str]:
-		for a in actions:
-			if a.get("type") == "SET_TEMP":
-				val = a.get("value")
-				try:
-                    # 強制轉成浮點數，這樣不管是整數 80 還是字串 "80" 都能抓到！
-					num_val = float(val)
-					if num_val < 18 or num_val > 30:
-						return False, "抱歉，冷氣溫度只能設定在 18 到 30 度之間喔！"
-				except (ValueError, TypeError):
-                    # 如果解析出來的不是數字（例如意外拿到 None），就先放行或另外處理
-					pass
-		return True, ""
+        if any(keyword in clean_input for keyword in ("關機", "關閉系統", "結束程式")):
+            reply = "好的，系統關閉中，再見！"
+            self.memory.add_interaction(clean_input, reply)
+            return self._build_result(reply, [{"type": "SHUTDOWN", "success": True}], None)
 
-	def handle(self, user_input: str, current_temp: Optional[int] = None, ambient_temp: Optional[int] = None) -> AgentResult:
-		"""Process one user input and return a unified AgentResult."""
-		clean_input = (user_input or "").strip()
-		if not clean_input:
-			reply = "請告訴我你想控制的設備或需求。"
-			out = AgentResult(
-				reply=reply,
-				actions=[],
-				route_type=RouteType.LLM,
-				intent=Intent.UNKNOWN,
-			)
-			self._save_turn(clean_input, reply)
-			return out
-		shutdown_keywords = ["關機", "關閉系統", "結束程式"]
-		if any(sk in clean_input for sk in shutdown_keywords):
-			reply = "好的，系統關閉中，再見！"
-			out = AgentResult(
-				reply=reply,
-				actions=[{"type": "SHUTDOWN"}],
-				route_type=RouteType.FAST_COMMAND,
-				intent=Intent.SYSTEM,
-			)
-			self._save_turn(clean_input, reply)
-			return out
+        if any(keyword in clean_input for keyword in ("清除記憶", "重置記憶", "清記憶")):
+            self.memory.reset_conversation()
+            self.state.reset_conversation()
+            reply = "好的，已清除短期記憶。"
+            self.memory.add_interaction(clean_input, reply)
+            return self._build_result(reply, [], None)
 
-		exit_keywords = ["掰掰", "再見", "結束", "退出", "待機", "拜拜"]
-		if any(ek in clean_input for ek in exit_keywords):
-			reply = "好的，我先休息囉，有需要請隨時叫我！"
-			out = AgentResult(
-                reply=reply,
-                actions=[{"type": "ENTER_STANDBY"}],
-                route_type=RouteType.FAST_COMMAND,
-                intent=Intent.SYSTEM,
-            )
-			self._save_turn(clean_input, reply)
-			return out
+        learned = self.fastpath.try_learn_rule(clean_input)
+        if learned is not None:
+            self.memory.save_rule(learned["trigger"], learned["meaning"])
+            reply = f"好的，我記住了：當你說「{learned['trigger']}」時，代表「{learned['meaning']}」。"
+            self.memory.add_interaction(clean_input, reply)
+            return self._build_result(reply, [], None)
 
+        rules = self.memory.load_rules()
+        fast_actions = self.fastpath.parse(clean_input, rules=rules)
+        if fast_actions:
+            executed, exec_error = self._execute_actions(fast_actions)
+            self.state.update_from_actions([item for item in executed if item.get("success")])
+            reply = self._friendly_fastpath_reply(fast_actions)
+            if exec_error:
+                reply = f"{reply} 但有部分裝置沒有成功執行。"
+            self.memory.add_interaction(clean_input, reply)
+            return self._build_result(reply, executed, exec_error)
 
-		decision = self.router.route(clean_input)
-		# 如果沒有傳入新值，就沿用 state 目前保留的數值
-		new_setpoint = current_temp if current_temp is not None else self.state.setpoint_temp
-		new_ambient = ambient_temp if ambient_temp is not None else self.state.ambient_temp
-		
-		self.state.set_state(
-			conversation_active=True,
-			input_text=clean_input,
-			last_intent=decision.intent.value,
-			status="start",
-			needs_clarification=False,
-			ambient_temp=new_ambient,
-			setpoint_temp=new_setpoint,
-		)
+        gemini_result = self.gemini.parse(clean_input, self.state, self.memory)
+        intent = gemini_result.get("intent")
+        actions = gemini_result.get("actions", [])
+        reply = str(gemini_result.get("reply") or FRIENDLY_ERROR)
 
-		# System commands can be handled directly without parser/llm.
-		if decision.intent == Intent.SYSTEM:
-			system_result = self._handle_system_intent(clean_input)
-			if system_result is not None:
-				self._save_turn(clean_input, system_result.reply)
-				return system_result
+        if intent == "unclear":
+            self.state.needs_clarification = True
+            self.state.clarification_message = reply
+            self.memory.add_interaction(clean_input, reply)
+            return self._build_result(reply, [], None)
 
-		# Rule-teaching commands are handled by fastpath learner directly.
-		learned = self.parser.fastpath.learn_rule(clean_input)
-		if learned is not None:
-			reply = "好的，我已經記住這條規則。"
-			self.state.set_state(
-				status="executed",
-				llm_reply=reply,
-			)
-			result = AgentResult(
-				reply=reply,
-				actions=[],
-				route_type=RouteType.FAST_COMMAND,
-				intent=Intent.SYSTEM,
-			)
-			self._save_turn(clean_input, result.reply)
-			return result
+        self.state.needs_clarification = False
+        self.state.clarification_message = None
 
-		question_keywords = ["嗎", "呢", "狀態", "有沒有", "是不是", "確認", "幾度", "?", "？", "高", "低", "升", "降", "調"]
-		is_question = any(q in clean_input for q in question_keywords)
-		if not is_question:
-			fast_actions = self.parser.fastpath.parse(clean_input)
-			if fast_actions:
-				is_valid, error_msg = self._validate_actions(fast_actions)
-				if not is_valid:
-					result = AgentResult(
-                        reply=error_msg,
-                        actions=[],
-                        route_type=RouteType.FAST_COMMAND,
-                        intent=Intent.DEVICE_CONTROL
-                    )
-					self._save_turn(clean_input, result.reply)
-					return result
-	
-				self.action_executor(fast_actions)
-				reply = "好的，已為你處理。"
+        if intent == "error":
+            self.memory.add_interaction(clean_input, reply)
+            return self._build_result(reply, [], "gemini_error")
 
-				self.state.set_state(
-					raw_actions=fast_actions,
-					validated_actions=fast_actions,
-					status="executed",
-					llm_reply=reply,
-				)
+        executed, exec_error = self._execute_actions(actions)
+        self.state.update_from_actions([item for item in executed if item.get("success")])
+        if exec_error:
+            reply = f"{reply} 但有部分裝置沒有成功執行。"
+        self.memory.add_interaction(clean_input, reply)
+        return self._build_result(reply, executed, exec_error)
 
-				for action in fast_actions:
-					action_type = str(action.get("type", ""))
-					if action_type == "SET_TEMP":
-						self.state.set_state(setpoint_temp=action.get("value"))
-					elif action_type == "FAN":
-						self.state.set_state(fan_state=action.get("state"))
-					elif action_type == "LED":
-						loc = str(action.get("location", "UNKNOWN")).upper()
-						self.state.led_states[loc] = action.get("state")
-						self.state.set_state(led_states=self.state.led_states)
-
-				result = AgentResult(
-					reply=reply,
-					actions=fast_actions,
-					route_type=RouteType.FAST_COMMAND,
-					intent=Intent.DEVICE_CONTROL,
-				)
-				self._save_turn(clean_input, result.reply)
-				return result
-		else:
-			print(f"偵測到疑問句 '{clean_input}'，跳過 FastPath，準備交給 LLM...")
-		memory_context = self.memory.get_context(limit=5)
-		current_status_info = (
-            f"[系統當前硬體狀態] "
-            f"冷氣設定溫度: {self.state.setpoint_temp}°C, (重要限制：冷氣只能設定在 18 到 30 度之間，若使用者要求超出範圍，請委婉拒絕), "
-            f"風扇狀態: {self.state.fan_state}, "
-            f"燈光狀態: 客廳 {self.state.led_states.get('LIVING', 'off')}, "
-            f"廚房 {self.state.led_states.get('KITCHEN', 'off')}, "
-            f"客房 {self.state.led_states.get('GUEST', 'off')}"
-        )
-		full_context = f"{current_status_info}\n{memory_context}"
-		llm_reply = self.llm_responder(clean_input, full_context)
-		self.state.set_state(
-			status="llm_reply",
-			llm_reply=llm_reply,
-		)
-		result = AgentResult(
-			reply=llm_reply,
-			actions=[],
-			route_type=decision.route_type,
-			intent=decision.intent,
-		)
-		self._save_turn(clean_input, result.reply)
-		return result
-
-
-if __name__ == "__main__":
-	# 測試區域：先用 no-op action executor 與預設 llm responder 跑整體流程。
-	agent = SmartHomeAgent()
-
-	test_inputs = [
-		"幫我開客廳燈",
-		"溫度調到 26 度",
-		"你好",
-		"清除記憶",
-		"幫我關風扇",
-	]
-
-	print("=== SmartHomeAgent Test Area ===")
-	for text in test_inputs:
-		out = agent.handle(text, current_temp=25, ambient_temp=29)
-		print(f"\ninput={text!r}")
-		print("intent:", out.intent.value)
-		print("route:", out.route_type.value)
-		print("actions:", out.actions)
-		print("reply:", out.reply)
-
-
-# ===================== SmartHomeAgent 完整流程與功能說明 =====================
-#
-# 這個檔案的角色：
-# - 它是「總控協調器 (orchestrator)」，負責串接 Router / Parser / Memory / State。
-# - 它不負責具體硬體控制細節，也不負責 LLM 模型細節。
-#
-# 主要 class 與責任：
-# 1) AgentResult
-#    - 統一每一輪回傳格式。
-#    - 欄位包含：reply、actions、route_type、intent、error。
-#
-# 2) SmartHomeAgent
-#    - 負責整體流程控制。
-#    - 透過依賴注入接收 router / parser / memory / state / executor / llm_responder。
-#
-# SmartHomeAgent.handle(...) 一輪完整流程：
-# Step 1: 清理輸入
-# - 將 user_input 做 strip。
-# - 若為空字串，直接回覆提示訊息，並寫入 memory。
-#
-# Step 2: 路由判斷
-# - 呼叫 router.route(clean_input) 得到 intent 與 route_type。
-# - 同步更新 state：conversation_active、last_user_input、last_intent。
-#
-# Step 3: SYSTEM 指令快速處理
-# - 若 intent 是 SYSTEM，交給 _handle_system_intent。
-# - 目前支援「清除記憶/reset」：會清 short-term memory 並重置對話狀態。
-#
-# Step 4: FAST_COMMAND 路徑
-# - 呼叫 parser.parse(..., return_reply=True)：
-#   parser 內部流程是 fastpath -> gemini fallback。
-# - 取得 actions 後，交給 action_executor(actions) 執行。
-# - 若 parser 沒給 reply，使用預設 reply。
-# - 根據 actions 更新 state.device_states：
-#   SET_TEMP -> temperature
-#   FAN      -> fan
-#   LED      -> light_{location}
-# - 將本輪結果寫入 memory。
-#
-# Step 5: LLM 路徑
-# - 取得 memory_context = memory.get_context(limit=5)。
-# - 呼叫 llm_responder(user_input, memory_context) 產生回覆。
-# - 將回覆寫入 memory，actions 為空。
-#
-# 注入點（方便後續替換）：
-# - action_executor: 之後可接 device_controller.py 真實硬體控制。
-# - llm_responder: 之後可接 llm_engine.py 正式 LLM 對話。
-#
-# 為何這樣設計：
-# - 高內聚：agent 專注流程協調。
-# - 低耦合：硬體與 LLM 可獨立替換。
-# - 好測試：可用 mock executor / mock llm_responder 做單元測試。
-# - 可擴充：未來加上 confirmation、tool calling、multi-device transaction 比較容易。

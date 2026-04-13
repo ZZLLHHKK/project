@@ -18,7 +18,7 @@ except Exception:  # pragma: no cover
         BCM = OUT = HIGH = LOW = 0
         def setwarnings(self, *_): pass
         def setmode(self, *_): pass
-        def setup(self, *_): pass
+        def setup(self, *_, **__): pass
         def output(self, *_): pass
         def cleanup(self): pass
     GPIO = _MockGPIO()  # type: ignore

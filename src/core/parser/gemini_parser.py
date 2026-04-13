@@ -1,352 +1,146 @@
-"""
-Gemini-based fuzzy parsing for:
-- Temperature control (explicit/fuzzy/relative)
-- Fan on/off
-- Kitchen/Living/Guest lights on/off
-
-Keeps "fuzzy semantics" + "memory rules" features by injecting rules.json
-and recent history.jsonl into the prompt.
-"""
 from __future__ import annotations
 
 import json
 import os
 import re
-import sys
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Callable, List, Optional, Tuple, Union, Dict
-
-# Allow direct execution: python src/core/parser/gemini_parser.py
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+from typing import Any
 
 import src.utils.config as config
-from src.core.actions_schema import ActionDict
-from src.core.parser.fastpath_parser import apply_memory_rules
-from src.utils.file_io import read_text, format_history_for_prompt
-from src.core.validator import validate_actions
-
-# The client automatically reads GEMINI_API_KEY from environment variables.
-# client = genai.Client()  # 移到函式內初始化
 
 _FENCE_RE_1 = re.compile(r"^```(?:json)?\s*", re.IGNORECASE)
 _FENCE_RE_2 = re.compile(r"\s*```$", re.IGNORECASE)
+_FRIENDLY_ERROR = "抱歉，我現在無法處理，請稍後再試。"
+
+
+def _strip_code_fences(text: str) -> str:
+    stripped = (text or "").strip()
+    stripped = _FENCE_RE_1.sub("", stripped)
+    stripped = _FENCE_RE_2.sub("", stripped)
+    return stripped.strip()
 
 
 def _try_load_dotenv() -> None:
-    """Best-effort .env loading so GEMINI_API_KEY can be read from project env file."""
     try:
         from dotenv import load_dotenv  # type: ignore
     except Exception:
         return
     load_dotenv(override=False)
 
-def _strip_code_fences(s: str) -> str:
-    s = (s or "").strip()
-    s = _FENCE_RE_1.sub("", s)
-    s = _FENCE_RE_2.sub("", s)
-    return s.strip()
 
-def _get_gemini_client() -> Any:
-    """延遲初始化 Gemini client，避免在模塊載入時就檢查 API key"""
-    try:
-        _try_load_dotenv()
-        # Accept both names for compatibility with different SDK examples.
-        api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-        if not api_key:
-            raise ValueError(
-                "缺少 API KEY 環境變數！\n"
-                "請設定環境變數：\n"
-                "export GEMINI_API_KEY='你的API金鑰'\n"
-                "或\n"
-                "export GOOGLE_API_KEY='你的API金鑰'\n"
-                "或在程式中設定：\n"
-                "import os\n"
-                "os.environ['GEMINI_API_KEY'] = '你的API金鑰'"
-            )
-        from google import genai
+def _get_client() -> Any:
+    _try_load_dotenv()
+    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if not api_key:
+        raise ValueError("missing gemini api key")
+    from google import genai
 
-        return genai.Client(api_key=api_key)
-    except Exception as e:
-        raise ValueError(f"初始化 Gemini client 失敗: {e}") from e
-
-
-@dataclass(slots=True)
-class PromptContext:
-    rewritten_text: str
-    rules_context: str
-    history_context: str
-    current_temp: int
-    ambient_temp: Optional[int]
-    ambient_humidity: Optional[int]
-    memory_context: str
-    fan_state: str
-    led_states: Optional[Dict[str, str]]
-
-
-class PromptBuilder:
-    """Only responsible for gathering context and building prompt text."""
-
-    def __init__(
-        self,
-        memory_rule_applier: Callable[[str], str] = apply_memory_rules,
-        rules_reader: Callable[[str], str] = read_text,
-        history_formatter: Callable[[], str] = format_history_for_prompt,
-    ) -> None:
-        self.memory_rule_applier = memory_rule_applier
-        self.rules_reader = rules_reader
-        self.history_formatter = history_formatter
-
-    def _bounded(self, text: str, limit: int = 2000) -> str:
-        if len(text) <= limit:
-            return text
-        return text[-limit:]
-
-    def build_context(
-        self,
-        user_text: str,
-        current_temp: Optional[int],
-        ambient_temp: Optional[int],
-        ambient_humidity: Optional[int] = None,
-        fan_state: str = "off",
-        led_states: Optional[Dict[str, str]] = None
-    ) -> PromptContext:
-        rewritten = self.memory_rule_applier(user_text)
-        rules_context = self._bounded(self.rules_reader(config.RULES_FILE) or "")
-        # include optional freeform memory file if configured
-        memory_context = self._bounded(read_text(str(getattr(config, "MEMORY_FILE", ""))) or "")
-        history_context = self._bounded(self.history_formatter() or "")
-        cur = int(current_temp) if current_temp is not None else 25
-        amb = int(ambient_temp) if ambient_temp is not None else None
-        hum = int(ambient_humidity) if ambient_humidity is not None else None
-        leds = led_states or {"KITCHEN": "off", "LIVING": "off", "GUEST": "off"}
-        return PromptContext(
-            rewritten_text=rewritten,
-            rules_context=rules_context,
-            history_context=history_context,
-            current_temp=cur,
-            ambient_temp=amb,
-            ambient_humidity=hum,
-            memory_context=memory_context,
-            fan_state=fan_state,
-            led_states=leds,
-        )
-
-    def build_prompt(self, ctx: PromptContext) -> str:
-            leds = ctx.led_states or {"KITCHEN": "off", "LIVING": "off", "GUEST": "off"}
-            device_status = (
-                f"- Fan: {ctx.fan_state}\n"
-                f"- Kitchen light: {leds.get('KITCHEN', 'off')}\n"
-                f"- Living room light: {leds.get('LIVING', 'off')}\n"
-                f"- Guest room light: {leds.get('GUEST', 'off')}"
-            )
-            return f"""
-You are a smart-home command parser.
-You must output JSON ONLY.
-
-OUTPUT FORMAT (hard constraints):
-- Output must be exactly a single JSON object with three keys: "actions", "reply", and "intent".
-- "intent": one of ["command", "query", "unclear"]
-- "actions": A JSON array of action objects.
-    - type: one of ["SET_TEMP","FAN","LED"]
-    - For SET_TEMP: value (number)
-    - For FAN: state ("on"|"off"), optional duration (seconds integer)
-    - For LED: location ("KITCHEN"|"LIVING"|"GUEST"), state ("on"|"off"), optional duration (seconds integer)
-- "reply": A natural, conversational response. 
-    - Act as a helpful assistant. (e.g., "好的，已經為您開啟客廳燈。")
-    - LANGUAGE MATCHING: The "reply" MUST be in the exact same language as the USER COMMAND. (e.g., If the user speaks English, reply in English. 如果使用者說中文，請用繁體中文回覆).
-    - Use commas (，) and periods (。) properly for text-to-speech pauses.
-    - If a request violates constraints (e.g., temperature > {config.MAX_TEMP}), return empty actions [] and politely explain why in the reply.
-
-DEVICE MAPPING:
-- Kitchen light => LED location "KITCHEN"
-- Living room light => LED location "LIVING"
-- Guest room light => LED location "GUEST"
-- Fan => type "FAN"
-- Temperature => type "SET_TEMP" (Celsius)
-
-SYSTEM RULES:
-- Temperature unit is Celsius.
-- Absolute safety range: {config.MIN_TEMP} to {config.MAX_TEMP} inclusive. If asked outside, clamp into range.
-- Comfort range: {config.COMFORT_MIN} to {config.COMFORT_MAX}.
-- TYPO CORRECTION: Automatically correct homophones, typos, or fuzzy device names in user input (e.g., "除防登" -> "廚房燈" -> KITCHEN, "克聽" -> "客廳" -> LIVING).
-- Ignore profanity/filled words; parse only the intent.
-- If the user mentions multiple devices, output multiple actions.
-- If the command is unrelated, output [].
-- If the command is ambiguous (e.g., user says "turn it off" or "關起來") AND multiple devices are currently ON, return empty actions [] and ask a clarification question in the reply (e.g., "請問您要關閉風扇還是客廳的燈？"). Set intent to "unclear".
-- If the user is asking a question (e.g., "現在幾度", "濕度多少", "什麼東西是開的"), return empty actions [] and WRITE a detailed answer in the "reply" field using the provided context (device states, temperatures). Do NOT leave "reply" empty. Set intent to "query".
-- TYPO CORRECTION: You MUST intelligently guess and auto-correct homophones or typos based on pronunciation (e.g., "除防登" -> "廚房燈", "克聽" -> "客廳", "封扇" -> "風扇").
-
-=== FEW-SHOT EXAMPLES ===
-User: "幫我開除防登"
-JSON: {"actions": [{"type": "LED", "location": "KITCHEN", "state": "on"}], "reply": "好的，已為您開啟廚房燈。", "intent": "command"}
-
-User: "克聽的燈幫我關掉"
-JSON: {"actions": [{"type": "LED", "location": "LIVING", "state": "off"}], "reply": "沒問題，已經關閉客廳的燈。", "intent": "command"}
-=========================
-
-TEMPERATURE INTERPRETATION:
-1) If user explicitly specifies a number, use it (then clamp).
-2) If user is fuzzy (e.g., "comfortable"), choose a reasonable number within comfort range.
-3) If user is relative without a number:
-     - Use current temperature setting {ctx.current_temp}.
-     - Typical adjustments:
-         * "cold" / "好冷" => User wants to feel warmer => +1 or +2
-         * "hot" / "好熱" => User wants to feel cooler => -1 or -2
-         * "higher a bit" / "調高" => +1
-         * "lower a bit" / "調低" => -1
-     - Apply memory rules if they define custom meanings.
-     - Then clamp.
-
-CONTEXT:
-- Current temperature setting is {ctx.current_temp} C.
-- Ambient temperature from sensor is {ctx.ambient_temp} C. (CRITICAL: If this is None or Null, tell the user the sensor is offline and report the current temperature setting [{ctx.current_temp} C] instead).
-- Ambient humidity from sensor is {ctx.ambient_humidity} %.
-- Current device states:
-{device_status}
-- Memory rules (user preferences) to apply:
-{ctx.memory_context if ctx.memory_context else "(empty)"}
-
-- Recent conversation history (most recent last):
-{ctx.history_context if ctx.history_context else "(empty)"}
-
-USER COMMAND:
-{ctx.rewritten_text}
-
-Now output JSON only.
-""".strip()
-
-
-class ResponseParser:
-    """Only responsible for decoding/validating LLM response text."""
-
-    def __init__(self, validator: Callable[[List[ActionDict]], List[ActionDict]] = validate_actions) -> None:
-        self.validator = validator
-
-    def parse(self, response_text: str) -> Tuple[List[ActionDict], str, Optional[str]]:
-        raw = _strip_code_fences(response_text)
-        try:
-            data = json.loads(raw)
-        except Exception:
-            return [], "抱歉，可以請您再說一次嗎？", "json_parse_failed"
-
-        if not isinstance(data, dict):
-            return [], "解析格式錯誤。", "payload_not_object"
-
-        raw_actions = data.get("actions", [])
-        reply_text = data.get("reply", "好的，已為您處理。")
-        intent = data.get("intent", "command")
-
-        actions: List[ActionDict] = []
-        if isinstance(raw_actions, list):
-            for item in raw_actions:
-                if isinstance(item, dict):
-                    actions.append(dict(item))
-
-        validated = self.validator(actions)
-        return validated, reply_text, intent
+    return genai.Client(api_key=api_key)
 
 
 class GeminiParser:
-    """Facade parser: build prompt, call Gemini, parse and validate output."""
+    """Build prompt, call Gemini, and parse structured response."""
 
-    def __init__(
-        self,
-        client_factory: Callable[[], Any] = _get_gemini_client,
-        prompt_builder: Optional[PromptBuilder] = None,
-        response_parser: Optional[ResponseParser] = None,
-    ) -> None:
-        self.client_factory = client_factory
-        self.prompt_builder = prompt_builder or PromptBuilder()
-        self.response_parser = response_parser or ResponseParser()
+    def _build_prompt(self, user_input: str, state: Any, memory_agent: Any) -> str:
+        current_state = state.get_state() if hasattr(state, "get_state") else {}
+        recent_context = memory_agent.get_recent_context(limit=5)
+        rules = memory_agent.load_rules()
 
-    def _call_gemini(self, prompt: str) -> str:
-        client = self.client_factory()
-        response = client.models.generate_content(
-            model=config.GEMINI_MODEL,
-            contents=prompt,
-        )
-        return response.text or ""
+        rules_lines = []
+        for rule in rules:
+            trigger = rule.get("trigger")
+            meaning = rule.get("meaning")
+            if trigger and meaning:
+                rules_lines.append(f"- 當使用者說「{trigger}」時，代表「{meaning}」")
 
-    def parse(
-        self,
-        user_text: str,
-        current_temp: Optional[int] = None,
-        ambient_temp: Optional[int] = None,
-        ambient_humidity: Optional[int] = None,
-        fan_state: str = "off",
-        led_states: Optional[Dict[str, str]] = None,
-        return_reply: bool = False,
-    ) -> Union[List[ActionDict], Tuple[List[ActionDict], Optional[str], Optional[str]]]:
-        """Return validated actions, with optional assistant reply and intent."""
-        if not user_text or not user_text.strip():
-            return ([], None) if return_reply else []
+        rules_block = "\n".join(rules_lines) if rules_lines else "(no custom rules)"
+        light = current_state.get("light", {})
+        ambient_temp = current_state.get("ambient_temp")
+        ambient_humidity = current_state.get("ambient_humidity")
 
-        ctx = self.prompt_builder.build_context(user_text, current_temp, ambient_temp, ambient_humidity, fan_state=fan_state, led_states=led_states)
-        prompt = self.prompt_builder.build_prompt(ctx)
+        return f"""
+You are a smart-home command parser.
+Output JSON only.
 
+Return exactly one JSON object with keys:
+- reply: Traditional Chinese response string
+- intent: one of [\"command\", \"query\", \"unclear\", \"error\"]
+- actions: array of action objects
+
+Action schema:
+- {{"type": "SET_TEMP", "value": 26}}
+- {{"type": "FAN", "state": "on"}}
+- {{"type": "LED", "location": "KITCHEN", "state": "off"}}
+
+Rules:
+1. If the input is a question, reply directly and keep actions empty.
+2. If the command is ambiguous, set intent to "unclear", ask a clarification question, and keep actions empty.
+3. Temperature must stay within {int(config.MIN_TEMP)} to {int(config.MAX_TEMP)} Celsius.
+4. Reply must never be empty.
+
+Current state:
+- temperature: {current_state.get('temperature', current_state.get('setpoint_temp', 25))}
+- fan: {current_state.get('fan', current_state.get('fan_state', 'off'))}
+- kitchen light: {light.get('KITCHEN', 'off')}
+- living light: {light.get('LIVING', 'off')}
+- guest light: {light.get('GUEST', 'off')}
+- ambient_temp: {ambient_temp}
+- ambient_humidity: {ambient_humidity}
+
+Custom rules:
+{rules_block}
+
+Recent context:
+{recent_context}
+
+User input:
+{user_input}
+""".strip()
+
+    def _parse_response(self, response_text: str) -> dict[str, Any]:
+        raw = _strip_code_fences(response_text)
         try:
-            llm_text = self._call_gemini(prompt)
-        except Exception as e:
-            if return_reply:
-                return [], f"[gemini_error] {e}"
-            return []
+            payload = json.loads(raw)
+        except Exception:
+            return {"reply": "抱歉，可以請您再說一次嗎？", "intent": "error", "actions": []}
 
-        actions, reply_text, intent = self.response_parser.parse(llm_text)
-        if return_reply:
-            return actions, reply_text, intent
-        return actions
+        if not isinstance(payload, dict):
+            return {"reply": _FRIENDLY_ERROR, "intent": "error", "actions": []}
+
+        actions = payload.get("actions", [])
+        if not isinstance(actions, list):
+            actions = []
+
+        cleaned_actions = [item for item in actions if isinstance(item, dict)]
+        intent = str(payload.get("intent") or "command").strip().lower()
+        if intent not in {"command", "query", "unclear", "error"}:
+            intent = "command"
+
+        reply = str(payload.get("reply") or "好的，已為您處理。")
+        return {"reply": reply, "intent": intent, "actions": cleaned_actions}
+
+    def parse(self, user_input: str, state: Any, memory_agent: Any) -> dict[str, Any]:
+        if not (user_input or "").strip():
+            return {"reply": "請告訴我你想做什麼。", "intent": "error", "actions": []}
+
+        prompt = self._build_prompt(user_input, state, memory_agent)
+        try:
+            client = _get_client()
+            response = client.models.generate_content(
+                model=config.GEMINI_MODEL,
+                contents=prompt,
+            )
+            return self._parse_response(response.text or "")
+        except Exception:
+            return {"reply": _FRIENDLY_ERROR, "intent": "error", "actions": []}
 
 
-_DEFAULT_GEMINI_PARSER = GeminiParser()
+DEFAULT_GEMINI = GeminiParser()
 
 
-def parse_with_gemini(
-    user_text: str,
-    current_temp: Optional[int] = None,
-    ambient_temp: Optional[int] = None,
-    ambient_humidity: Optional[int] = None,
-    fan_state: str = "off",
-    led_states: Optional[Dict[str, str]] = None,
-    return_reply: bool = False
-) -> Union[List[ActionDict], Tuple[List[ActionDict], Optional[str], Optional[str]]]:
-    """Backward-compatible function wrapper."""
-    return _DEFAULT_GEMINI_PARSER.parse(
-        user_text=user_text,
-        current_temp=current_temp,
-        ambient_temp=ambient_temp,
-        ambient_humidity=ambient_humidity,
-        fan_state=fan_state,
-        led_states=led_states,
-        return_reply=return_reply,
-    )
+def parse_with_gemini(user_input: str, state: Any, memory_agent: Any) -> dict[str, Any]:
+    return DEFAULT_GEMINI.parse(user_input, state, memory_agent)
 
 
-if __name__ == "__main__":
-    # 測試區域：直接執行本檔可做 smoke test。
-    # 注意：此測試會真的呼叫 Gemini API，請先確認 .env 或環境變數有設定 GEMINI_API_KEY。
-    print("=== GeminiParser Test Area ===")
+def parse(user_input: str, state: Any, memory_agent: Any) -> dict[str, Any]:
+    return parse_with_gemini(user_input, state, memory_agent)
 
-    parser = GeminiParser()
-    samples = [
-        "把克聽燈打開",
-        "溫度調到27度",
-        "幫我關掉全部",
-        "今天天期如何",
-    ]
-
-    for idx, text in enumerate(samples, start=1):
-        print(f"\n[{idx}] input={text!r}")
-        actions, reply, intent = parser.parse(
-            text,
-            current_temp=25,
-            ambient_temp=29,
-            fan_state="off",
-            led_states={"KITCHEN": "off", "LIVING": "off", "GUEST": "off"},
-            return_reply=True,
-        )
-        print("actions:", actions)
-        print("reply:", reply)
-        print("intent:", intent)

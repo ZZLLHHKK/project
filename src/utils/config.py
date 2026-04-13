@@ -29,7 +29,6 @@ OUTPUT_FILE = DATA_DIR / "output.txt"
 ACTIONS_FILE = DATA_DIR / "actions.txt"
 RULES_FILE  = DATA_DIR / "memory" / "rules.json"
 MEMORY_FILE = DATA_DIR / "memory" / "memory.txt"
-HISTORY_FILE = DATA_DIR / "history.jsonl"
 REPLY_FILE   = DATA_DIR / "reply.txt"  # optional: human-friendly confirmations
 RECORDINGS_DIR = DATA_DIR / "recordings"
 LONG_TERM = DATA_DIR / "memory" / "long_term.jsonl"
@@ -152,7 +151,7 @@ LED_LOCATION_TO_PIN = {
 # -------------------------
 # Enable/disable by environment variable DHT11_ENABLED=1/0
 DHT11_ENABLED = os.getenv("DHT11_ENABLED", "1").strip() not in ("0", "false", "False", "OFF", "off")
-DHT11_PIN = int(os.getenv("DHT11_PIN", "25"))  # BCM pin number (default GPIO17)
+DHT11_PIN = int(os.getenv("DHT11_PIN", "25"))  # BCM pin number (default GPIO25)
 # Read interval (seconds). DHT11 is slow; 2s is safe.
 DHT11_READ_INTERVAL_SEC = float(os.getenv("DHT11_READ_INTERVAL_SEC", "2.0"))
 

@@ -1,3 +1,8 @@
 {
-  "rules": []
+  "rules": [
+    {
+      "trigger": "睡覺模式",
+      "meaning": "關掉全部"
+    }
+  ]
 }
