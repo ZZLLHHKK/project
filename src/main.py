@@ -1,6 +1,9 @@
 import os
 import sys
+import argparse
 from pathlib import Path
+
+from src.launch import run_desktop_console, run_gui_app
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -9,17 +12,15 @@ if str(PROJECT_ROOT) not in sys.path:
 
 
 def main() -> None:
-    # 薄入口：固定桌面模式，核心流程委派到 true_main。
-    os.environ["RUNTIME_MODE"] = "desktop"
-    # Desktop 預設：鍵盤喚醒詞 + 語音命令 + Piper TTS。
-    os.environ.setdefault("DHT11_ENABLED", "0")
-    os.environ.setdefault("SPEECH_ENABLED", "1")
-    os.environ.setdefault("WAKEWORD_ENABLED", "0")
-    os.environ.setdefault("TTS_ENABLED", "1")
+    parser = argparse.ArgumentParser(add_help=True)
+    parser.add_argument("--gui", action="store_true", help="Launch Tkinter desktop GUI")
+    args = parser.parse_args()
 
-    from src.true_main import main as run_core
+    if args.gui:
+        run_gui_app()
+        return
 
-    run_core()
+    run_desktop_console()
 
 if __name__ == "__main__":
     main()
