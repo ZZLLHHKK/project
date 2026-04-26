@@ -1,0 +1,49 @@
+test_id,ground_truth_text,expected_action,utterance_type,noise_level,audio_file,note
+T_001,幫我打開客廳的燈,turn_on_living_light,command,none,T_001.wav,pi baseline clean
+T_002,幫我打開客廳的燈,turn_on_living_light,command,indoor,T_002.wav,pi fan noise
+T_003,幫我打開客廳的燈,turn_on_living_light,command,high,T_003.wav,pi tv plus speech noise
+T_004,幫我關掉客廳的燈,turn_off_living_light,command,none,T_004.wav,pi baseline clean
+T_005,幫我關掉客廳的燈,turn_off_living_light,command,indoor,T_005.wav,pi fan noise
+T_006,幫我關掉客廳的燈,turn_off_living_light,command,high,T_006.wav,pi tv plus speech noise
+T_007,打開廚房的燈,turn_on_kitchen_light,command,none,T_007.wav,pi baseline clean
+T_008,打開廚房的燈,turn_on_kitchen_light,command,indoor,T_008.wav,pi fan noise
+T_009,打開廚房的燈,turn_on_kitchen_light,command,high,T_009.wav,pi tv plus speech noise
+T_010,關掉廚房的燈,turn_off_kitchen_light,command,none,T_010.wav,pi baseline clean
+T_011,關掉廚房的燈,turn_off_kitchen_light,command,indoor,T_011.wav,pi fan noise
+T_012,關掉廚房的燈,turn_off_kitchen_light,command,high,T_012.wav,pi tv plus speech noise
+T_013,打開客房的燈,turn_on_guest_light,command,none,T_013.wav,pi baseline clean
+T_014,打開客房的燈,turn_on_guest_light,command,indoor,T_014.wav,pi fan noise
+T_015,打開客房的燈,turn_on_guest_light,command,high,T_015.wav,pi tv plus speech noise
+T_016,關掉客房的燈,turn_off_guest_light,command,none,T_016.wav,pi baseline clean
+T_017,關掉客房的燈,turn_off_guest_light,command,indoor,T_017.wav,pi fan noise
+T_018,關掉客房的燈,turn_off_guest_light,command,high,T_018.wav,pi tv plus speech noise
+T_019,請把風扇打開,turn_on_fan,command,none,T_019.wav,pi baseline clean
+T_020,請把風扇打開,turn_on_fan,command,indoor,T_020.wav,pi fan noise
+T_021,請把風扇打開,turn_on_fan,command,high,T_021.wav,pi tv plus speech noise
+T_022,請把風扇關掉,turn_off_fan,command,none,T_022.wav,pi baseline clean
+T_023,請把風扇關掉,turn_off_fan,command,indoor,T_023.wav,pi fan noise
+T_024,請把風扇關掉,turn_off_fan,command,high,T_024.wav,pi tv plus speech noise
+T_025,把溫度調到24度,set_temp_24,command,none,T_025.wav,pi baseline clean
+T_026,把溫度調到24度,set_temp_24,command,indoor,T_026.wav,pi fan noise
+T_027,把溫度調到24度,set_temp_24,command,high,T_027.wav,pi tv plus speech noise
+T_028,把溫度調到27度,set_temp_27,command,none,T_028.wav,pi baseline clean
+T_029,把溫度調到27度,set_temp_27,command,indoor,T_029.wav,pi fan noise
+T_030,把溫度調到27度,set_temp_27,command,high,T_030.wav,pi tv plus speech noise
+T_031,客廳燈打開一下,turn_on_living_light,command,none,T_031.wav,colloquial phrasing clean
+T_032,客廳燈打開一下,turn_on_living_light,command,indoor,T_032.wav,colloquial phrasing fan noise
+T_033,客廳燈打開一下,turn_on_living_light,command,high,T_033.wav,colloquial phrasing heavy noise
+T_034,把全部都關掉,all_off,command,none,T_034.wav,includes all off command
+T_035,把全部都關掉,all_off,command,indoor,T_035.wav,includes all off command
+T_036,把全部都關掉,all_off,command,high,T_036.wav,includes all off command
+T_037,現在溫度幾度,query_temp,query,none,T_037.wav,query style clean
+T_038,現在溫度幾度,query_temp,query,indoor,T_038.wav,query style fan noise
+T_039,現在溫度幾度,query_temp,query,high,T_039.wav,query style heavy noise
+T_040,現在濕度多少,query_humidity,query,none,T_040.wav,query humidity clean
+T_041,現在濕度多少,query_humidity,query,indoor,T_041.wav,query humidity fan noise
+T_042,現在濕度多少,query_humidity,query,high,T_042.wav,query humidity heavy noise
+T_043,幫我把廚房燈關掉,turn_off_kitchen_light,command,none,T_043.wav,explicit location command clean
+T_044,幫我把廚房燈關掉,turn_off_kitchen_light,command,indoor,T_044.wav,explicit location command fan noise
+T_045,幫我把廚房燈關掉,turn_off_kitchen_light,command,high,T_045.wav,explicit location command heavy noise
+T_046,請開啟所有燈,turn_on_all_lights,command,none,T_046.wav,all lights on clean
+T_047,請開啟所有燈,turn_on_all_lights,command,indoor,T_047.wav,all lights on fan noise
+T_048,請開啟所有燈,turn_on_all_lights,command,high,T_048.wav,all lights on heavy noise

@@ -2,3 +2,5 @@
 
 # 測試與品質工具（可自行加強）
 pytest
+pandas
+jiwer

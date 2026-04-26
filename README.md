@@ -156,3 +156,139 @@ pip install -r requirements/pi.txt
 3. 額度不足
 
 - LLM 層會回傳 quota_exceeded 降級狀態，可先用 fastpath 或鍵盤流程繼續測試
+
+## STT 量測流程（第一階段）
+
+### 1) 準備測試題庫與音檔
+
+- 題庫檔案：`data/eval/test_cases.csv`
+- 音檔資料夾：`data/recordings/`
+- `test_cases.csv` 的 `audio_file` 需對應到 `data/recordings/` 內的 WAV 檔
+
+### 2) 安裝量測依賴
+
+```bash
+source .venv/bin/activate
+pip install -r requirements/dev.txt
+```
+
+### 2.5) 自動錄音與自動命名（建議）
+
+直接依 `data/eval/test_cases.csv` 逐題錄音，檔名自動使用 `audio_file` 欄位（例如 `T_001.wav`）。
+
+```bash
+python scripts/record_eval_audio.py \
+   --cases data/eval/test_cases.csv \
+   --output-dir data/recordings/eval \
+   --duration 6
+```
+
+常用選項：
+
+- `--start-id T_020`：從指定題號開始續錄
+- `--overwrite`：覆蓋既有音檔
+
+錄完後，執行 STT 評測時改用該資料夾：
+
+```bash
+python scripts/eval_stt.py --audio-dir data/recordings/eval
+```
+
+### 3) 執行 STT 評測
+
+```bash
+python scripts/eval_stt.py \
+   --cases data/eval/test_cases.csv \
+   --audio-dir data/recordings \
+   --output data/eval/results.csv \
+   --models tiny,base,small \
+   --repeat 3 \
+   --device cpu \
+   --compute-type int8 \
+   --threads 4
+```
+
+輸出欄位包含：
+
+- `cer`：字錯率
+- `rtf`：即時率
+- `inference_ms`：單次推論耗時
+- `startup_state`：`Cold` / `Warm`
+
+### 4) 匯總平均與 P95
+
+```bash
+python scripts/summarize_stt_results.py \
+   --input data/eval/results.csv \
+   --output data/eval/summary_by_model.csv
+```
+
+若只想看熱啟動結果：
+
+```bash
+python scripts/summarize_stt_results.py --warm-only
+```
+
+## 第二階段前置（指令理解與流程耗時）
+
+### 1) NLU 題庫與格式
+
+- 題庫檔案：`data/eval/nlu_test_cases.csv`
+- 單次結果：`data/eval/nlu_results.csv`
+- 指標彙總：`data/eval/nlu_summary.csv`
+- 流程耗時表：`data/eval/pipeline_timing.csv`
+
+`nlu_test_cases.csv` 建議欄位：
+
+- `test_id`
+- `input_text`
+- `expected_route`（`fastpath` / `gemini`）
+- `expected_actions_json`
+- `utterance_type`
+- `noise_level`
+- `note`
+
+### 2) 執行 NLU 評測（預設僅測 FastPath）
+
+```bash
+python scripts/eval_nlu_pipeline.py \
+   --cases data/eval/nlu_test_cases.csv \
+   --output data/eval/nlu_results.csv \
+   --summary data/eval/nlu_summary.csv \
+   --repeat 3
+```
+
+若要同時測 Gemini fallback：
+
+```bash
+python scripts/eval_nlu_pipeline.py --enable-gemini
+```
+
+### 3) 單獨重算 NLU 彙總
+
+```bash
+python scripts/summarize_nlu_results.py \
+   --input data/eval/nlu_results.csv \
+   --output data/eval/nlu_summary.csv
+```
+
+`nlu_summary.csv` 會輸出：
+
+- `route_match_rate`
+- `action_match_rate`
+- `execution_success_rate`
+- `fastpath_hit_rate`
+- `mean_parse_ms` / `p95_parse_ms`
+
+### 4) 流程耗時資料使用方式
+
+`pipeline_timing.csv` 用來整合完整流程耗時（錄音、STT、解析、執行、TTS、端到端），可由主流程執行後落表：
+
+- `record_ms`
+- `stt_ms`
+- `parse_ms`
+- `action_ms`
+- `tts_ms`
+- `end_to_end_ms`
+- `success`
+- `fail_stage`

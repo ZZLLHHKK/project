@@ -11,6 +11,7 @@ import sys
 import subprocess
 import os
 import shutil
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -55,6 +56,25 @@ class SpeechProcessor:
         print(f"👤 [測試輸入]: {text}")
         return text
 
+    def record_wav_file(
+        self,
+        output_path: str | Path,
+        duration: Optional[int] = None,
+        allow_manual_stop: bool = False,
+    ) -> str:
+        """只做錄音，不做 STT，並將檔案另存到指定路徑。"""
+        wav_path = self._record_audio(
+            duration=duration,
+            allow_manual_stop=allow_manual_stop,
+        )
+        if not wav_path:
+            return ""
+
+        target = Path(output_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(wav_path, target)
+        return str(target)
+
     # ====================== 嘴巴（輸出） ======================
     def text_to_speech(self, text: str) -> None:
         """播放回覆（整合原本 tts.py 的 speak）"""
@@ -90,7 +110,82 @@ class SpeechProcessor:
 
         return f"voice(arecord:{self.device})"
 
-    def _record_audio(self, duration: Optional[int] = None) -> str:
+    def _record_audio(self, duration: Optional[int] = None, allow_manual_stop: bool = False) -> str:
+        """錄音入口：優先使用 arecord+VAD，WSL/桌面則回退到 ffmpeg 固定秒數錄音。"""
+        if os.getenv("WSL_DISTRO_NAME") and shutil.which("ffmpeg") is not None:
+            return self._record_audio_ffmpeg(duration=duration, allow_manual_stop=allow_manual_stop)
+
+        if shutil.which("arecord") is None and shutil.which("ffmpeg") is not None:
+            return self._record_audio_ffmpeg(duration=duration, allow_manual_stop=allow_manual_stop)
+
+        wav_path = self._record_audio_arecord_vad(duration=duration)
+        if wav_path:
+            return wav_path
+
+        # arecord 失敗時最後嘗試 ffmpeg（若可用）
+        if shutil.which("ffmpeg") is not None:
+            return self._record_audio_ffmpeg(duration=duration, allow_manual_stop=allow_manual_stop)
+        return ""
+
+    def _record_audio_ffmpeg(self, duration: Optional[int] = None, allow_manual_stop: bool = False) -> str:
+        """桌面/WSL 友善錄音：用 ffmpeg 依固定秒數錄音。"""
+        max_seconds = int(duration or self.default_duration)
+        output_path = Path(RECORDINGS_DIR) / "latest.wav"
+
+        # WSL + PulseAudio 路徑：使用 default 輸入即可。
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "pulse",
+            "-i",
+            "default",
+            "-ac",
+            "1",
+            "-ar",
+            "16000",
+            "-t",
+            str(max_seconds),
+            str(output_path),
+        ]
+
+        try:
+            print(f"⏺️ 錄音中（ffmpeg，最長 {max_seconds}s）...")
+            if allow_manual_stop:
+                print("⏹️  錄音中按 Enter 可提前結束")
+                proc = subprocess.Popen(
+                    cmd,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    text=True,
+                )
+
+                def _wait_for_enter_to_stop() -> None:
+                    try:
+                        _ = sys.stdin.readline()
+                        if proc.poll() is None and proc.stdin is not None:
+                            proc.stdin.write("q\n")
+                            proc.stdin.flush()
+                    except Exception:
+                        return
+
+                stopper = threading.Thread(target=_wait_for_enter_to_stop, daemon=True)
+                stopper.start()
+                proc.wait()
+                if proc.returncode not in (0, 255):
+                    return ""
+            else:
+                subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+            if output_path.exists() and output_path.stat().st_size > 1024:
+                print(f"⏱️ 錄音完成（ffmpeg，{max_seconds}s）")
+                return str(output_path)
+            return ""
+        except Exception:
+            return ""
+
+    def _record_audio_arecord_vad(self, duration: Optional[int] = None) -> str:
         """arecord pipe + 能量 VAD：說完就停，最多等 max_duration 秒。"""
         import numpy as np
         import wave

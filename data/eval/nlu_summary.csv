@@ -1,0 +1,3 @@
+﻿scope,samples,route_match_rate,action_match_rate,execution_success_rate,fastpath_hit_rate,mean_parse_ms,p95_parse_ms,mean_total_ms,p95_total_ms
+overall,5,1.0,1.0,1.0,1.0,0.016999999999999998,0.04019999999999999,0.0192,0.04399999999999999
+route:fastpath,5,1.0,1.0,1.0,1.0,0.016999999999999998,0.04019999999999999,0.0192,0.04399999999999999

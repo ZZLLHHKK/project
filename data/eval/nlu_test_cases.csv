@@ -1,0 +1,31 @@
+test_id,input_text,expected_route,expected_actions_json,utterance_type,noise_level,note
+N_001,幫我打開客廳的燈,fastpath,"[{""type"":""LED"",""location"":""LIVING"",""state"":""on""}]",command,none,single light on
+N_002,幫我關掉客廳的燈,fastpath,"[{""type"":""LED"",""location"":""LIVING"",""state"":""off""}]",command,none,single light off
+N_003,打開廚房的燈,fastpath,"[{""type"":""LED"",""location"":""KITCHEN"",""state"":""on""}]",command,none,kitchen light on
+N_004,關掉廚房的燈,fastpath,"[{""type"":""LED"",""location"":""KITCHEN"",""state"":""off""}]",command,none,kitchen light off
+N_005,打開客房的燈,fastpath,"[{""type"":""LED"",""location"":""GUEST"",""state"":""on""}]",command,none,guest light on
+N_006,關掉客房的燈,fastpath,"[{""type"":""LED"",""location"":""GUEST"",""state"":""off""}]",command,none,guest light off
+N_007,請把風扇打開,fastpath,"[{""type"":""FAN"",""state"":""on""}]",command,none,fan on
+N_008,請把風扇關掉,fastpath,"[{""type"":""FAN"",""state"":""off""}]",command,none,fan off
+N_009,把溫度調到24度,fastpath,"[{""type"":""SET_TEMP"",""value"":24}]",command,none,set temp 24
+N_010,把溫度調到27度,fastpath,"[{""type"":""SET_TEMP"",""value"":27}]",command,none,set temp 27
+N_011,全部燈關掉,fastpath,"[{""type"":""LED"",""location"":""KITCHEN"",""state"":""off""},{""type"":""LED"",""location"":""LIVING"",""state"":""off""},{""type"":""LED"",""location"":""GUEST"",""state"":""off""}]",command,indoor,all lights off only
+N_012,把全部都關掉,fastpath,"[{""type"":""LED"",""location"":""KITCHEN"",""state"":""off""},{""type"":""LED"",""location"":""LIVING"",""state"":""off""},{""type"":""LED"",""location"":""GUEST"",""state"":""off""},{""type"":""FAN"",""state"":""off""}]",command,indoor,all devices off
+N_013,請開啟所有燈,fastpath,"[{""type"":""LED"",""location"":""KITCHEN"",""state"":""on""},{""type"":""LED"",""location"":""LIVING"",""state"":""on""},{""type"":""LED"",""location"":""GUEST"",""state"":""on""}]",command,none,all lights on
+N_014,把客廳燈打開一下,fastpath,"[{""type"":""LED"",""location"":""LIVING"",""state"":""on""}]",command,none,colloquial light on
+N_015,幫我把廚房燈關掉,fastpath,"[{""type"":""LED"",""location"":""KITCHEN"",""state"":""off""}]",command,none,colloquial kitchen off
+N_016,請把客房燈打開,fastpath,"[{""type"":""LED"",""location"":""GUEST"",""state"":""on""}]",command,none,colloquial guest on
+N_017,冷氣調到23度,fastpath,"[{""type"":""SET_TEMP"",""value"":23}]",command,none,temp with cooling keyword
+N_018,空調設定到26度,fastpath,"[{""type"":""SET_TEMP"",""value"":26}]",command,none,temp with hvac keyword
+N_019,風扇打開,fastpath,"[{""type"":""FAN"",""state"":""on""}]",command,none,short fan on
+N_020,風扇關閉,fastpath,"[{""type"":""FAN"",""state"":""off""}]",command,none,short fan off
+N_021,現在溫度幾度,gemini,[],query,none,query temperature
+N_022,請問目前室內溫度是多少,gemini,[],query,none,query temperature formal
+N_023,現在濕度多少,gemini,[],query,none,query humidity
+N_024,今天我家現在狀態怎樣,gemini,[],query,indoor,system status query
+N_025,幫我介紹一下你可以做什麼,gemini,[],query,none,capability query
+N_026,請問客廳燈是不是開著,gemini,[],query,none,state query
+N_027,幫我處理一下,gemini,[],unclear,none,ambiguous command
+N_028,你看著辦,gemini,[],unclear,none,ambiguous command
+N_029,幫我弄舒服一點,gemini,[],unclear,none,vague comfort request
+N_030,我剛剛說什麼,gemini,[],query,none,memory style query
