@@ -78,5 +78,5 @@ def build_gui_command_presentation(result: CommandResult, language: str) -> GuiC
 
 
 def execute_gui_text_command(agent: Any, text: str, language: str) -> GuiCommandPresentation:
-    result = execute_text_command(agent, text)
+    result = execute_text_command(agent, text, lang=language)
     return build_gui_command_presentation(result, language)

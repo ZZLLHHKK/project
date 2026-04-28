@@ -18,9 +18,9 @@ class CommandResult:
     payload: dict[str, Any]
 
 
-def execute_text_command(agent: Any, text: str) -> CommandResult:
+def execute_text_command(agent: Any, text: str, lang: str | None = None) -> CommandResult:
     try:
-        payload = agent.handle(text)
+        payload = agent.handle(text, lang=lang)
     except Exception:
         payload = {"reply": FRIENDLY_ERROR, "actions_executed": [], "error": "agent_handle_failed"}
 

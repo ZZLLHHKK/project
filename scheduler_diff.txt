@@ -1,0 +1,3587 @@
+diff --git a/.gitignore b/.gitignore
+index 9ef49be..37cfa1e 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -19,6 +19,7 @@ data/reply.txt
+ data/memory/device_state.json
+ data/memory/short_term.json
+ data/memory/long_term.jsonl
++data/memory/schedules.json
+ 
+ # 本機測試用虛擬環境殘留
+ scripts/.venv/
+diff --git a/src/compat/agent.py b/src/agent.py
+similarity index 100%
+rename from src/compat/agent.py
+rename to src/agent.py
+diff --git a/src/compat/__init__.py b/src/compat/__init__.py
+deleted file mode 100644
+index 8ab2e76..0000000
+--- a/src/compat/__init__.py
++++ /dev/null
+@@ -1,21 +0,0 @@
+-# compat/ — re-export shims
+-# 這些檔案把深層模組的公開介面集中暴露，方便外部直接從 src.compat 引用。
+-# 專案內部請直接引用真實路徑（src.core.agent、src.devices.device_controller 等）。
+-from src.compat.agent import ActionExecutionError, SmartHomeAgent
+-from src.compat.device_controller import DeviceController
+-from src.compat.fastpath_parser import FastPathParser, parse as parse_fastpath, parse_fastpath as parse_fastpath_fn, try_learn_rule
+-from src.compat.gemini_parser import GeminiParser, parse as parse_gemini, parse_with_gemini
+-from src.compat.memory_agent import MemoryAgent
+-from src.compat.state_manager import StateManager
+-
+-__all__ = [
+-    "ActionExecutionError",
+-    "SmartHomeAgent",
+-    "DeviceController",
+-    "FastPathParser",
+-    "GeminiParser",
+-    "MemoryAgent",
+-    "StateManager",
+-    "try_learn_rule",
+-    "parse_with_gemini",
+-]
+diff --git a/src/core/agent.py b/src/core/agent.py
+index e1bf648..ae9756f 100644
+--- a/src/core/agent.py
++++ b/src/core/agent.py
+@@ -1,14 +1,106 @@
+ from __future__ import annotations
+ 
++import re as _re
+ from typing import Any, Optional
+ 
+ from .memory_agent import MemoryAgent
+ from .parser.fastpath_parser import FastPathParser
+ from .parser.gemini_parser import GeminiParser
++from .parser.schedule_parser import (
++    ScheduleFastPathParser,
++    has_time_reference as _has_time_ref,
++    _DATE_RE as _SCHED_DATE_RE,
++    _detect_period as _sched_detect_period,
++)
++from .scheduler import ScheduleManager
+ from .state_manager import StateManager
+ 
+ FRIENDLY_ERROR = "抱歉，我現在無法處理，請稍後再試。"
+ 
++_HHMM_RE = _re.compile(r"\b(\d{1,2}):(\d{2})\b")
++
++_FUTURE_DATE_SIGNALS = ("明天", "後天", "大後天", "下週", "下個月", "下禮拜")
++
++_COMMON_STT_REWRITES = {
++    "行程": "排程",
++    "定時": "排程",
++    "開登": "開燈",
++    "關登": "關燈",
++    "風善": "風扇",
++    "溫渡": "溫度",
++}
++
++_RULE_TEACH_STRONG_HINTS = ("當我說", "以後我說", "之後我說", "如果我說")
++_RULE_TEACH_MAP_HINTS = ("代表", "意思是", "就是", "等於", "就")
++
++
++def _has_future_no_time(text: str) -> bool:
++    """文字含有未來日期（明天/後天/X月Y號）但缺少具體時間 → 應交給 Gemini 詢問幾點。"""
++    has_future = any(w in text for w in _FUTURE_DATE_SIGNALS) or bool(_SCHED_DATE_RE.search(text))
++    return has_future and not _has_time_ref(text)
++
++
++def _has_period_no_hour(text: str) -> bool:
++    """
++    檢測文字是否包含時段（早上/下午/晚上）但缺少具體小時。
++    例如："明天早上開燈"、"後天下午關風扇"都應轉給 Gemini 詢問確切時間。
++    """
++    # 檢查是否有時段標記
++    period = _sched_detect_period(text)
++    if not period:
++        return False
++    
++    # 檢查是否有具體時間（HH:MM 或 H點 等）
++    has_specific_time = _has_time_ref(text)
++    
++    # 如果有時段但沒有具體時間，就需要轉給 Gemini
++    return not has_specific_time
++
++
++def _format_hhmm(hour: int, minute: int) -> str:
++    """把 24 小時制轉成口語格式，例如 22:00 → 晚上10點。"""
++    if hour == 0:
++        period, h = "凌晨", 12
++    elif hour < 6:
++        period, h = "凌晨", hour
++    elif hour < 12:
++        period, h = "早上", hour
++    elif hour == 12:
++        period, h = "中午", 12
++    elif hour < 18:
++        period, h = "下午", hour - 12
++    elif hour < 21:
++        period, h = "傍晚", hour - 12
++    else:
++        period, h = "晚上", hour - 12
++    if minute == 0:
++        return f"{period}{h}點"
++    if minute == 30:
++        return f"{period}{h}點半"
++    return f"{period}{h}點{minute}分"
++
++
++def _tts_format(text: str) -> str:
++    """將回覆中的 HH:MM 轉成口語時間格式。"""
++    return _HHMM_RE.sub(lambda m: _format_hhmm(int(m.group(1)), int(m.group(2))), text)
++
++
++def _normalize_input(text: str) -> str:
++    """Normalize common STT confusions before routing/parsing."""
++    normalized = text
++    for wrong, corrected in _COMMON_STT_REWRITES.items():
++        normalized = normalized.replace(wrong, corrected)
++    return normalized
++
++
++def _looks_like_rule_teaching(text: str) -> bool:
++    """Heuristic: user likely tries to teach a custom rule mapping."""
++    if any(hint in text for hint in _RULE_TEACH_STRONG_HINTS):
++        return True
++    has_say = ("我說" in text) or ("說" in text)
++    has_map = any(hint in text for hint in _RULE_TEACH_MAP_HINTS)
++    return has_say and has_map
++
+ 
+ class ActionExecutionError(RuntimeError):
+     """Compatibility placeholder for older call sites."""
+@@ -24,12 +116,216 @@ class SmartHomeAgent:
+         fastpath_parser: Optional[FastPathParser] = None,
+         gemini_parser: Optional[GeminiParser] = None,
+         device_controller: Any = None,
++        scheduler: Optional[ScheduleManager] = None,
+     ) -> None:
+         self.memory = memory or MemoryAgent()
+         self.state = state or StateManager()
+         self.fastpath = fastpath_parser or FastPathParser()
+         self.gemini = gemini_parser or GeminiParser()
+         self.device_controller = device_controller
++        self.scheduler = scheduler or ScheduleManager()
++        self._sched_fastpath = ScheduleFastPathParser()
++
++    # ── Schedule helpers ───────────────────────────────────────────────────────
++
++    def _handle_schedule_add(self, parsed: dict[str, Any], original: str) -> dict[str, Any]:
++        rule = self.scheduler.add(
++            hour=parsed["hour"],
++            minute=parsed["minute"],
++            actions=parsed["actions"],
++            name=parsed["name"],
++            year=parsed.get("year"),
++            month=parsed.get("month"),
++            day=parsed.get("day"),
++            recurrence=parsed.get("recurrence", "daily"),
++        )
++        if rule is None:
++            reply = "排程新增失敗，可能已達上限（5條）或與現有排程衝突。"
++        else:
++            reply = _tts_format(f"好的，已設定排程：{parsed['name']}。")
++        self.memory.add_interaction(original, reply)
++        return self._build_result(reply, [], None)
++
++    def _handle_schedule_manage(self, parsed: dict[str, Any], original: str) -> dict[str, Any]:
++        op = parsed["op"]
++        rule_id = parsed.get("id")
++
++        if op == "list":
++            rules = self.scheduler.list_all()
++            if not rules:
++                reply = "目前沒有設定任何排程。"
++            else:
++                lines = []
++                for r in rules:
++                    time_str = f"{r['hour']:02d}:{r['minute']:02d}"
++                    name = r.get("name", "")
++                    if name.startswith(time_str + " "):
++                        name = name[len(time_str) + 1:].strip()
++                    enabled = "啟用" if r.get("enabled") else "停用"
++                    lines.append(f"{_tts_format(time_str)} {name}（{enabled}）")
++                reply = "目前的排程：\n" + "\n".join(lines)
++
++        elif op == "list_date":
++            month = parsed.get("month")
++            day = parsed.get("day")
++            if month and day:
++                rules = self.scheduler.list_by_date(month, day)
++                if not rules:
++                    reply = f"{month}月{day}號沒有設定任何排程。"
++                else:
++                    lines = []
++                    for r in rules:
++                        time_str = f"{r['hour']:02d}:{r['minute']:02d}"
++                        name = r.get("name", "")
++                        if name.startswith(time_str + " "):
++                            name = name[len(time_str) + 1:].strip()
++                        enabled = "啟用" if r.get("enabled") else "停用"
++                        lines.append(f"{_tts_format(time_str)} {name}（{enabled}）")
++                    reply = f"{month}月{day}號的排程：\n" + "\n".join(lines)
++            else:
++                reply = "請告訴我要查詢哪一天的排程。"
++
++        elif op == "delete_by_time":
++            hour = parsed.get("hour")
++            minute = parsed.get("minute", 0)
++            if hour is None:
++                reply = "請告訴我要刪除哪個時間的排程。"
++            else:
++                deleted = self.scheduler.delete_by_time(hour, minute)
++                time_str = _format_hhmm(hour, minute)
++                if deleted:
++                    reply = f"已刪除{time_str}的排程。"
++                else:
++                    reply = f"找不到{time_str}的排程。"
++
++        elif op == "delete":
++            if not rule_id:
++                reply = "請告訴我要刪除哪個排程的 ID。"
++            elif self.scheduler.delete(rule_id):
++                reply = "已刪除排程。"
++            else:
++                reply = "找不到該排程。"
++
++        elif op in ("enable", "disable"):
++            if not rule_id:
++                reply = "請告訴我要操作哪個排程的 ID。"
++            else:
++                result = self.scheduler.set_enabled(rule_id, op == "enable")
++                if result is None:
++                    reply = "找不到該排程。"
++                else:
++                    reply = f"排程已{'啟用' if result else '停用'}。"
++        else:
++            reply = "不確定你想對排程做什麼操作。"
++
++        self.memory.add_interaction(original, reply)
++        return self._build_result(reply, [], None)
++
++    def _process_gemini_schedule_actions(
++        self, actions: list[dict[str, Any]]
++    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str]]:
++        """Split Gemini actions into device actions and handled actions.
++
++        Returns (device_actions, handled_actions, handled_reply_parts).
++        """
++        device_actions: list[dict[str, Any]] = []
++        handled_actions: list[dict[str, Any]] = []
++        handled_reply_parts: list[str] = []
++
++        for action in actions:
++            action_type = str(action.get("type", "")).upper()
++
++            if action_type == "SCHEDULE_ADD":
++                nested = action.get("actions", [])
++                h = int(action.get("hour", 0))
++                m = int(action.get("minute", 0))
++                name = str(action.get("name", f"{h:02d}:{m:02d} 排程"))
++                year = int(action["year"]) if action.get("year") else None
++                month = int(action["month"]) if action.get("month") else None
++                day = int(action["day"]) if action.get("day") else None
++                recurrence = str(action.get("recurrence", "daily"))
++                rule = self.scheduler.add(h, m, nested, name,
++                                          year=year, month=month, day=day,
++                                          recurrence=recurrence)
++                if rule:
++                    handled_actions.append(dict(action, success=True, id=rule["id"]))
++                    handled_reply_parts.append(_tts_format(f"已設定排程：{name}。"))
++                else:
++                    handled_actions.append(dict(action, success=False))
++                    handled_reply_parts.append("排程新增失敗，可能已達上限（5條）或與現有排程衝突。")
++
++            elif action_type == "SCHEDULE_LIST_DATE":
++                month = int(action.get("month", 0))
++                day = int(action.get("day", 0))
++                year = int(action["year"]) if action.get("year") else None
++                if month and day:
++                    rules = self.scheduler.list_by_date(month, day, year)
++                    if rules:
++                        lines = []
++                        for r in rules:
++                            time_str = f"{r['hour']:02d}:{r['minute']:02d}"
++                            name = r.get("name", "")
++                            if name.startswith(time_str + " "):
++                                name = name[len(time_str) + 1:].strip()
++                            lines.append(f"{_tts_format(time_str)} {name}")
++                        handled_reply_parts.append(f"{month}月{day}號的排程：\n" + "\n".join(lines))
++                    else:
++                        handled_reply_parts.append(f"{month}月{day}號沒有設定任何排程。")
++                else:
++                    handled_reply_parts.append("請告訴我要查詢哪一天的排程。")
++                handled_actions.append(dict(action, success=True))
++
++            elif action_type == "SCHEDULE_LIST":
++                rules = self.scheduler.list_all()
++                if rules:
++                    lines = []
++                    for r in rules:
++                        time_str = f"{r['hour']:02d}:{r['minute']:02d}"
++                        name = r.get("name", "")
++                        if name.startswith(time_str + " "):
++                            name = name[len(time_str) + 1:].strip()
++                        lines.append(f"{_tts_format(time_str)} {name}")
++                    handled_reply_parts.append("排程列表：\n" + "\n".join(lines))
++                else:
++                    handled_reply_parts.append("目前沒有設定任何排程。")
++                handled_actions.append(dict(action, success=True))
++
++            elif action_type == "SCHEDULE_DELETE":
++                rule_id = str(action.get("id", ""))
++                ok = self.scheduler.delete(rule_id) if rule_id else False
++                handled_actions.append(dict(action, success=ok))
++                handled_reply_parts.append(
++                    f"已刪除排程 {rule_id}。" if ok else f"找不到排程 {rule_id}。"
++                )
++
++            elif action_type == "SCHEDULE_TOGGLE":
++                rule_id = str(action.get("id", ""))
++                result = self.scheduler.toggle(rule_id) if rule_id else None
++                ok = result is not None
++                handled_actions.append(dict(action, success=ok))
++                if ok:
++                    handled_reply_parts.append(
++                        f"排程 {rule_id} 已{'啟用' if result else '停用'}。"
++                    )
++                else:
++                    handled_reply_parts.append(f"找不到排程 {rule_id}。")
++
++            elif action_type == "LEARN_RULE":
++                trigger = str(action.get("trigger", "")).strip()
++                meaning = str(action.get("meaning", "")).strip()
++                ok = self.memory.save_rule(trigger, meaning) if trigger and meaning else False
++                handled_actions.append(dict(action, success=ok))
++                if ok:
++                    handled_reply_parts.append(f"好的，我記住了：當你說「{trigger}」時，代表「{meaning}」。")
++                else:
++                    handled_reply_parts.append("規則新增失敗，請確認觸發詞與語意是否完整，或是否已存在。")
++
++            else:
++                device_actions.append(action)
++
++        return device_actions, handled_actions, handled_reply_parts
++
++    # ── Device helpers ─────────────────────────────────────────────────────────
+ 
+     def _friendly_fastpath_reply(self, actions: list[dict[str, Any]]) -> str:
+         labels = {"KITCHEN": "廚房", "LIVING": "客廳", "GUEST": "客房"}
+@@ -73,17 +369,20 @@ class SmartHomeAgent:
+             "error": error,
+         }
+ 
++    # ── Main handler ───────────────────────────────────────────────────────────
++
+     def handle(self, user_input: str) -> dict[str, Any]:
+-        clean_input = (user_input or "").strip()
++        clean_input = _normalize_input((user_input or "").strip())
+         if not clean_input:
+             return self._build_result("請告訴我你想控制的設備或需求。", [], None)
+ 
+-        if any(keyword in clean_input for keyword in ("掰掰", "再見", "待機", "拜拜")):
++        # Keywords: standby / shutdown / clear memory
++        if any(keyword in clean_input for keyword in ("掰掰", "再見", "待機", "拜拜", "休息", "晚安", "掰了", "拜了")):
+             reply = "好的，我先休息囉，有需要請隨時叫我！"
+             self.memory.add_interaction(clean_input, reply)
+             return self._build_result(reply, [{"type": "ENTER_STANDBY", "success": True}], None)
+ 
+-        if any(keyword in clean_input for keyword in ("關機", "關閉系統", "結束程式")):
++        if any(keyword in clean_input for keyword in ("關機", "關閉系統", "結束程式", "關掉系統", "把你關掉", "停止系統")):
+             reply = "好的，系統關閉中，再見！"
+             self.memory.add_interaction(clean_input, reply)
+             return self._build_result(reply, [{"type": "SHUTDOWN", "success": True}], None)
+@@ -95,6 +394,17 @@ class SmartHomeAgent:
+             self.memory.add_interaction(clean_input, reply)
+             return self._build_result(reply, [], None)
+ 
++        # Schedule fastpath ── manage (list / delete / toggle)
++        manage = self._sched_fastpath.parse_manage(clean_input)
++        if manage is not None:
++            return self._handle_schedule_manage(manage, clean_input)
++
++        # Schedule fastpath ── add (unambiguous time + device)
++        sched_add = self._sched_fastpath.parse_add(clean_input)
++        if sched_add is not None:
++            return self._handle_schedule_add(sched_add, clean_input)
++
++        # Device fastpath ── learn custom alias
+         learned = self.fastpath.try_learn_rule(clean_input)
+         if learned is not None:
+             self.memory.save_rule(learned["trigger"], learned["meaning"])
+@@ -102,20 +412,29 @@ class SmartHomeAgent:
+             self.memory.add_interaction(clean_input, reply)
+             return self._build_result(reply, [], None)
+ 
++        # Device fastpath ── immediate device commands
++        # 如果有任何時間表達（未來日期、時段、具體時間），都應該交給 Gemini 判斷是排程還是立即執行
++        # 這樣可以避免「晚上8點 設定溫度27」被快速路徑誤認為立即執行的問題
++        # 若看起來像在教規則但 fastpath 句型未命中，也交給 Gemini，避免誤觸發電器控制。
+         rules = self.memory.load_rules()
+-        fast_actions = self.fastpath.parse(clean_input, rules=rules)
++        looks_like_rule_teach = _looks_like_rule_teaching(clean_input)
++        has_time_expr = _has_future_no_time(clean_input) or _has_period_no_hour(clean_input) or _has_time_ref(clean_input)
++        fast_actions = None if (has_time_expr or looks_like_rule_teach) else self.fastpath.parse(clean_input, rules=rules)
+         if fast_actions:
+             executed, exec_error = self._execute_actions(fast_actions)
+             self.state.update_from_actions([item for item in executed if item.get("success")])
++            if not exec_error:
++                self.scheduler.block_devices(fast_actions)
+             reply = self._friendly_fastpath_reply(fast_actions)
+             if exec_error:
+                 reply = f"{reply} 但有部分裝置沒有成功執行。"
+             self.memory.add_interaction(clean_input, reply)
+             return self._build_result(reply, executed, exec_error)
+ 
++        # Gemini fallback ── handles ambiguous schedule AND complex device commands
+         gemini_result = self.gemini.parse(clean_input, self.state, self.memory)
+         intent = gemini_result.get("intent")
+-        actions = gemini_result.get("actions", [])
++        all_actions = gemini_result.get("actions", [])
+         reply = str(gemini_result.get("reply") or FRIENDLY_ERROR)
+ 
+         if intent == "unclear":
+@@ -131,10 +450,19 @@ class SmartHomeAgent:
+             self.memory.add_interaction(clean_input, reply)
+             return self._build_result(reply, [], "gemini_error")
+ 
+-        executed, exec_error = self._execute_actions(actions)
++        # Split Gemini actions: schedule vs device
++        device_actions, handled_executed, handled_parts = self._process_gemini_schedule_actions(all_actions)
++
++        executed, exec_error = self._execute_actions(device_actions)
+         self.state.update_from_actions([item for item in executed if item.get("success")])
++        if device_actions and not exec_error:
++            self.scheduler.block_devices(device_actions)
++
++        if handled_parts:
++            reply = "、".join(handled_parts)
+         if exec_error:
+             reply = f"{reply} 但有部分裝置沒有成功執行。"
+-        self.memory.add_interaction(clean_input, reply)
+-        return self._build_result(reply, executed, exec_error)
+ 
++        all_executed = executed + handled_executed
++        self.memory.add_interaction(clean_input, reply)
++        return self._build_result(reply, all_executed, exec_error)
+diff --git a/src/core/date_parser.py b/src/core/date_parser.py
+new file mode 100644
+index 0000000..9dd8595
+--- /dev/null
++++ b/src/core/date_parser.py
+@@ -0,0 +1,219 @@
++"""自然語言日期解析器，將"明天"、"4月26號"等轉換為標準日期。"""
++
++from __future__ import annotations
++
++import re
++from datetime import datetime, timedelta
++from typing import Optional
++
++
++class DateParser:
++    """解析自然語言日期到標準化的年月日、時分秒。"""
++
++    def __init__(self):
++        self.now = datetime.now()
++        self.today = self.now.date()
++
++    def parse(self, text: str) -> Optional[dict]:
++        """
++        解析文本中的日期和時間。
++        
++        支援格式:
++        - "明天 22:00" → {year: 2026, month: 4, day: 26, hour: 22, minute: 0, second: 0}
++        - "後天 14:30" → {year: 2026, month: 4, day: 27, hour: 14, minute: 30, second: 0}
++        - "4月26號 22:00" → {year: 2026, month: 4, day: 26, hour: 22, minute: 0, second: 0}
++        - "下週一 10:00" → {year: 2026, month: 4, day: 29, hour: 10, minute: 0, second: 0}
++        - "22:00" → {hour: 22, minute: 0, second: 0} (沒有日期，表示今天)
++        - "每天 22:00" → {recurrence: "daily", hour: 22, minute: 0, second: 0}
++        - "每週一 10:00" → {recurrence: "weekly", weekday: 0, hour: 10, minute: 0, second: 0}
++        
++        Args:
++            text: 使用者輸入的日期時間文本
++            
++        Returns:
++            標準化的日期時間字典，或 None 若解析失敗
++        """
++        if not text:
++            return None
++
++        text = text.strip()
++        result = {}
++
++        # 1. 先檢查重複模式
++        recurrence = self._parse_recurrence(text)
++        if recurrence:
++            result.update(recurrence)
++
++        # 2. 提取時間 (HH:MM 或 HH:MM:SS)
++        time_match = self._parse_time(text)
++        if time_match:
++            result.update(time_match)
++        else:
++            # 如果沒有找到時間，這個日期字符串無效
++            if not recurrence:
++                return None
++
++        # 3. 提取日期 (如果有的話)
++        if not recurrence:  # 重複排程不需要日期
++            date_match = self._parse_date(text)
++            if date_match:
++                result.update(date_match)
++            # 如果沒有日期，預設為今天 (recurrence == None)
++
++        return result if result else None
++
++    def _parse_recurrence(self, text: str) -> Optional[dict]:
++        """檢查是否為重複排程。"""
++        # 每天
++        if "每天" in text or "每日" in text:
++            return {"recurrence": "daily"}
++
++        # 每週 + 星期幾
++        weekly_match = re.search(r"每週([一二三四五六日])", text)
++        if weekly_match:
++            day_name = weekly_match.group(1)
++            weekday = self._day_name_to_weekday(day_name)
++            return {"recurrence": "weekly", "weekday": weekday}
++
++        # 每月
++        if "每月" in text:
++            # 提取日期 (如"每月26號")
++            day_match = re.search(r"每月(\d{1,2})(?:號)?", text)
++            if day_match:
++                day = int(day_match.group(1))
++                if 1 <= day <= 31:
++                    return {"recurrence": "monthly", "day": day}
++
++        return None
++
++    def _parse_date(self, text: str) -> Optional[dict]:
++        """提取日期 (年月日)。"""
++        # 明天
++        if "明天" in text:
++            tomorrow = self.today + timedelta(days=1)
++            return {
++                "year": tomorrow.year,
++                "month": tomorrow.month,
++                "day": tomorrow.day,
++                "recurrence": "once",
++            }
++
++        # 後天
++        if "後天" in text:
++            day_after_tomorrow = self.today + timedelta(days=2)
++            return {
++                "year": day_after_tomorrow.year,
++                "month": day_after_tomorrow.month,
++                "day": day_after_tomorrow.day,
++                "recurrence": "once",
++            }
++
++        # 月份 + 日期 (例: "4月26號" 或 "4/26" 或 "四月26")
++        # 匹配 "4月26號", "04月26日", "4-26", "4/26" 等
++        date_patterns = [
++            r"(\d{1,2})月(\d{1,2})(?:號|日)?",  # "4月26號"
++            r"(\d{1,2})[/\-](\d{1,2})",  # "4/26" 或 "4-26"
++        ]
++
++        # 中文月份對照
++        month_map = {
++            "一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6,
++            "七": 7, "八": 8, "九": 9, "十": 10, "十一": 11, "十二": 12,
++        }
++
++        # 檢查中文月份
++        for cn_month, num_month in month_map.items():
++            if cn_month + "月" in text:
++                day_match = re.search(rf"{cn_month}月(\d{{1,2}})(?:號|日)?", text)
++                if day_match:
++                    day = int(day_match.group(1))
++                    if 1 <= day <= 31:
++                        return {
++                            "year": self.now.year,
++                            "month": num_month,
++                            "day": day,
++                            "recurrence": "once",
++                        }
++
++        # 檢查數字月份
++        for pattern in date_patterns:
++            match = re.search(pattern, text)
++            if match:
++                month = int(match.group(1))
++                day = int(match.group(2))
++
++                # 驗證合法性
++                if 1 <= month <= 12 and 1 <= day <= 31:
++                    return {
++                        "year": self.now.year,
++                        "month": month,
++                        "day": day,
++                        "recurrence": "once",
++                    }
++
++        # 下週一、下週二... (下週 + 星期)
++        next_week_match = re.search(r"下週([一二三四五六日])", text)
++        if next_week_match:
++            day_name = next_week_match.group(1)
++            weekday = self._day_name_to_weekday(day_name)
++            # 計算下週的該星期幾
++            days_ahead = weekday - self.now.weekday()
++            if days_ahead <= 0:  # 下週的話，至少要 7 天
++                days_ahead += 7
++            target_date = self.today + timedelta(days=days_ahead)
++            return {
++                "year": target_date.year,
++                "month": target_date.month,
++                "day": target_date.day,
++                "recurrence": "once",
++            }
++
++        return None
++
++    def _parse_time(self, text: str) -> Optional[dict]:
++        """提取時間 (時分秒)。"""
++        # 匹配 HH:MM:SS, HH:MM, H:MM 等格式
++        time_patterns = [
++            r"(\d{1,2}):(\d{2}):(\d{2})",  # "22:00:30"
++            r"(\d{1,2}):(\d{2})",  # "22:00"
++            r"(\d{1,2})點(\d{2})分(\d{2})秒",  # "22點00分30秒"
++            r"(\d{1,2})點(\d{2})分",  # "22點00分"
++            r"(\d{1,2})點",  # "22點"
++        ]
++
++        for pattern in time_patterns:
++            match = re.search(pattern, text)
++            if match:
++                groups = match.groups()
++                hour = int(groups[0])
++                minute = int(groups[1]) if len(groups) > 1 else 0
++                second = int(groups[2]) if len(groups) > 2 else 0
++
++                # 驗證合法性
++                if 0 <= hour <= 23 and 0 <= minute <= 59 and 0 <= second <= 59:
++                    return {
++                        "hour": hour,
++                        "minute": minute,
++                        "second": second,
++                    }
++
++        return None
++
++    def _day_name_to_weekday(self, day_name: str) -> int:
++        """將中文星期名轉換為 weekday (0=Monday, 6=Sunday)。"""
++        day_map = {
++            "一": 0,
++            "二": 1,
++            "三": 2,
++            "四": 3,
++            "五": 4,
++            "六": 5,
++            "日": 6,
++        }
++        return day_map.get(day_name, 0)
++
++
++def parse_date(text: str) -> Optional[dict]:
++    """便利函數，快速解析日期。"""
++    parser = DateParser()
++    return parser.parse(text)
+diff --git a/src/core/parser/fastpath_parser.py b/src/core/parser/fastpath_parser.py
+index ea07a25..169c3a5 100644
+--- a/src/core/parser/fastpath_parser.py
++++ b/src/core/parser/fastpath_parser.py
+@@ -12,8 +12,13 @@ LEARN_PATTERNS = [
+     re.compile(r"^\s*如果我說\s*(.+?)\s*[，,]?\s*(?:請|就)\s*(.+?)\s*$"),
+ ]
+ 
++LEARN_GROUP_1 = ("當我說", "以後我說", "之後我說", "如果我說")
++LEARN_GROUP_2 = ("代表", "意思是", "等於", "就是", "就")
++
+ TEMP_KEYWORDS = ("溫度", "溫控", "冷氣", "空調", "度", "℃", "調到", "設定")
+ NUM_RE = re.compile(r"(-?\d+(?:\.\d+)?)\s*(?:度|°|c|℃)?", re.IGNORECASE)
++_TEMP_WITH_UNIT_RE = re.compile(r"(-?\d+(?:\.\d+)?)\s*(?:度|°|℃)", re.IGNORECASE)
++_TIME_NUM_RE = re.compile(r"\d+\s*(?:點|時|分|秒)")
+ 
+ KW_ON = ("開", "打開", "開啟", "on", "turn on")
+ KW_OFF = ("關", "關掉", "關閉", "off", "turn off")
+@@ -37,6 +42,43 @@ def _clamp_temperature(value: float) -> int:
+ class FastPathParser:
+     """Rule-based parser for explicit commands and user-taught aliases."""
+ 
++    def _extract_rule_by_groups(self, text: str) -> Optional[dict[str, str]]:
++        """Heuristic extraction: sentence has both keyword groups, then split trigger/meaning."""
++        first_match: Optional[tuple[int, str]] = None
++        for marker in LEARN_GROUP_1:
++            idx = text.find(marker)
++            if idx >= 0 and (first_match is None or idx < first_match[0]):
++                first_match = (idx, marker)
++
++        if first_match is None:
++            return None
++
++        start = first_match[0] + len(first_match[1])
++        tail = text[start:]
++
++        second_match: Optional[tuple[int, str]] = None
++        for marker in LEARN_GROUP_2:
++            idx = tail.find(marker)
++            if idx >= 0 and (second_match is None or idx < second_match[0]):
++                second_match = (idx, marker)
++
++        if second_match is None:
++            return None
++
++        split_idx, split_marker = second_match
++        trigger = tail[:split_idx].strip().strip("，,：:。;； ")
++        trigger = re.sub(r"(?:的時候|時候|時)$", "", trigger).strip()
++
++        meaning = tail[split_idx + len(split_marker):].strip().strip("，,：:。;； ")
++        meaning = re.sub(r"^(?:請|就)\s*", "", meaning).strip()
++
++        trigger = trigger.strip("「」\"'")
++        meaning = meaning.strip("「」\"'")
++
++        if not trigger or not meaning:
++            return None
++        return {"trigger": trigger, "meaning": meaning}
++
+     def try_learn_rule(self, user_text: str) -> Optional[dict[str, str]]:
+         text = (user_text or "").strip()
+         for pattern in LEARN_PATTERNS:
+@@ -47,27 +89,48 @@ class FastPathParser:
+             meaning = match.group(2).strip().strip("「」\"'")
+             if trigger and meaning:
+                 return {"trigger": trigger, "meaning": meaning}
+-        return None
++        return self._extract_rule_by_groups(text)
+ 
+     def apply_rules(self, user_text: str, rules: list[dict[str, str]]) -> str:
+         text = user_text or ""
+-        for rule in rules:
++        # Longer triggers first avoids short trigger preempting a longer one.
++        normalized_rules = sorted(
++            rules,
++            key=lambda item: len(str(item.get("trigger", "")).strip()),
++            reverse=True,
++        )
++        for rule in normalized_rules:
+             trigger = str(rule.get("trigger", "")).strip()
+             meaning = str(rule.get("meaning", "")).strip()
+             if trigger and meaning:
+-                text = text.replace(trigger, meaning)
++                # ASCII-like tokens use word boundaries to reduce accidental partial matches.
++                if re.fullmatch(r"[\w\s\-]+", trigger, flags=re.UNICODE):
++                    pattern = re.compile(rf"(?<!\w){re.escape(trigger)}(?!\w)", flags=re.UNICODE)
++                    text = pattern.sub(meaning, text)
++                else:
++                    text = text.replace(trigger, meaning)
+         return text
+ 
+     def _parse_temperature(self, text: str) -> Optional[list[dict[str, Any]]]:
+         if not any(keyword in text for keyword in TEMP_KEYWORDS):
+             return None
+-        for raw in NUM_RE.findall(text):
++        # 優先：直接帶「度/℃/°」單位的數字，避免抓到時間裡的數字
++        for raw in _TEMP_WITH_UNIT_RE.findall(text):
++            try:
++                value = float(raw)
++                if 0 <= value <= 60:
++                    return [{"type": "SET_TEMP", "value": _clamp_temperature(value)}]
++            except Exception:
++                continue
++        # fallback：移除時間數字（X點/X分）後再找，並縮小合理溫度範圍
++        clean = _TIME_NUM_RE.sub("", text)
++        for raw in NUM_RE.findall(clean):
+             try:
+                 value = float(raw)
++                if 15 <= value <= 45:
++                    return [{"type": "SET_TEMP", "value": _clamp_temperature(value)}]
+             except Exception:
+                 continue
+-            if 0 <= value <= 60:
+-                return [{"type": "SET_TEMP", "value": _clamp_temperature(value)}]
+         return None
+ 
+     def _parse_fan(self, text: str) -> Optional[list[dict[str, Any]]]:
+diff --git a/src/core/parser/gemini_parser.py b/src/core/parser/gemini_parser.py
+index 00b08d8..1b57e49 100644
+--- a/src/core/parser/gemini_parser.py
++++ b/src/core/parser/gemini_parser.py
+@@ -3,6 +3,7 @@ from __future__ import annotations
+ import json
+ import os
+ import re
++from datetime import datetime
+ from typing import Any
+ 
+ import src.utils.config as config
+@@ -57,25 +58,58 @@ class GeminiParser:
+         ambient_temp = current_state.get("ambient_temp")
+         ambient_humidity = current_state.get("ambient_humidity")
+ 
++        now = datetime.now()
++        now_str = now.strftime("%Y-%m-%d %H:%M:%S")
++
+         return f"""
+ You are a smart-home command parser.
+ Output JSON only.
+ 
+ Return exactly one JSON object with keys:
+ - reply: Traditional Chinese response string
+-- intent: one of [\"command\", \"query\", \"unclear\", \"error\"]
++- intent: one of ["command", "query", "unclear", "error"]
+ - actions: array of action objects
+ 
+-Action schema:
++Device action schema (execute immediately):
+ - {{"type": "SET_TEMP", "value": 26}}
+ - {{"type": "FAN", "state": "on"}}
+ - {{"type": "LED", "location": "KITCHEN", "state": "off"}}
+ 
++Rule-learning action schema:
++- {{"type": "LEARN_RULE", "trigger": "我要睡了", "meaning": "全部關燈並關風扇"}}
++
++Schedule action schema (use when user specifies a future/recurring time):
++- {{"type": "SCHEDULE_ADD", "hour": 22, "minute": 0, "name": "22:00 風扇開", "actions": [{{"type": "FAN", "state": "on"}}]}}
++  Optional date fields for one-time schedules: "year": 2026, "month": 5, "day": 1, "recurrence": "once"
++  For recurring: "recurrence": "daily" (no date fields needed)
++- {{"type": "SCHEDULE_LIST"}}
++- {{"type": "SCHEDULE_LIST_DATE", "month": 5, "day": 1}}  (query schedules on a specific date)
++- {{"type": "SCHEDULE_LIST_DATE", "month": 5, "day": 1, "year": 2026}}  (with year)
++- {{"type": "SCHEDULE_DELETE", "id": "abc12345"}}
++- {{"type": "SCHEDULE_TOGGLE", "id": "abc12345"}}
++
+ Rules:
+-1. If the input is a question, reply directly and keep actions empty.
+-2. If the command is ambiguous, set intent to "unclear", ask a clarification question, and keep actions empty.
+-3. Temperature must stay within {int(config.MIN_TEMP)} to {int(config.MAX_TEMP)} Celsius.
+-4. Reply must never be empty.
++1. **CRITICAL: Any command with a time expression → ALWAYS schedule**
++   - Time expressions: "晚上8點", "今天下午3點", "明天8點", "8:30", "晚上", "下午"
++   - Examples: "晚上8.08分設定溫度27" → SCHEDULE_ADD (not SET_TEMP)
++   - "開廚房燈" → immediate action (device action)
++   - "晚上開廚房燈" → SCHEDULE_ADD (has time expression "晚上")
++2. If the user says "明天", "後天", "大後天", or a specific date like "5月1號", include year/month/day in SCHEDULE_ADD and set recurrence to "once".
++3. If the user says "每天", set recurrence to "daily" and omit date fields.
++4. If the user asks about schedules on a specific date (e.g. "查詢5月1號"), return SCHEDULE_LIST_DATE.
++5. If the scheduled time is ambiguous (e.g. "8點" with no AM/PM context), set intent to "unclear" and ask which time period.
++6. If the input is a question, reply directly and keep actions empty.
++7. If the command is ambiguous (non-schedule), set intent to "unclear" and ask a clarification question.
++7.1 If user is teaching a custom phrase mapping (e.g. "當我說A代表B"), return LEARN_RULE.
++8. Temperature must stay within {int(config.MIN_TEMP)} to {int(config.MAX_TEMP)} Celsius.
++9. Reply must never be empty.
++10. Input comes from speech-to-text (STT) and may contain phonetically misrecognized characters.
++    Before setting intent to "unclear", try to infer the most likely intent from phonetic
++    similarity and the smart-home context (devices, schedules, queries).
++    If you infer a corrected intent, execute it and briefly confirm in the reply
++    what you understood (e.g. "我幫您刪除排程。").
++
++Current date and time: {now_str}
+ 
+ Current state:
+ - temperature: {current_state.get('temperature', current_state.get('setpoint_temp', 25))}
+diff --git a/src/core/parser/schedule_parser.py b/src/core/parser/schedule_parser.py
+new file mode 100644
+index 0000000..e0cd984
+--- /dev/null
++++ b/src/core/parser/schedule_parser.py
+@@ -0,0 +1,238 @@
++from __future__ import annotations
++
++import re
++from datetime import datetime
++from typing import Any, Optional
++
++# ── Period markers ─────────────────────────────────────────────────────────────
++_PERIOD_AM = ("上午", "早上", "早晨", "凌晨")
++_PERIOD_PM = ("下午", "傍晚")
++_PERIOD_NIGHT = ("晚上", "夜晚", "深夜", "夜間")
++_PERIOD_NOON = ("中午", "正午")
++
++# ── Schedule intent signals ────────────────────────────────────────────────────
++_SCHEDULE_SIGNALS = (
++    "每天", "每日", "定時", "設定排程", "新增排程",
++    "幫我", "幫忙", "記得", "到時候", "明天", "後天", "大後天",
++)
++
++# ── Management keywords ────────────────────────────────────────────────────────
++_MANAGE_MAP: dict[str, tuple[str, ...]] = {
++    "list":   ("查看排程", "顯示排程", "排程列表", "有哪些排程", "目前排程", "我的排程",
++               "查看行程", "顯示行程", "行程列表", "有哪些行程", "我的行程", "所有排程", "列出排程"),
++    "delete": ("刪除排程", "移除排程", "取消排程", "刪除行程", "移除行程", "取消行程"),
++    "enable": ("啟用排程", "啟用行程"),
++    "disable": ("停用排程", "關閉排程", "暫停排程", "停用行程", "關閉行程", "暫停行程"),
++}
++
++# ── Date query signals ─────────────────────────────────────────────────────────
++_DATE_QUERY_SIGNALS = ("查詢", "查看", "有哪些", "有什麼")
++_DATE_RE = re.compile(r"(\d{1,2})月(\d{1,2})(?:號|日)?")
++
++_ID_RE = re.compile(r"\b([a-f0-9]{8})\b")
++_HHMM_RE = re.compile(r"\b(\d{1,2}):(\d{2})\b")
++_CHINESE_HOUR_RE = re.compile(r"(\d{1,2})\s*點")
++_CHINESE_MIN_RE = re.compile(r"\d{1,2}\s*點\s*(\d{1,2})\s*分")
++_CHINESE_HALF_RE = re.compile(r"\d{1,2}\s*點\s*半")
++
++
++def _detect_period(text: str) -> str:
++    for w in _PERIOD_NOON:
++        if w in text:
++            return "noon"
++    for w in _PERIOD_NIGHT:
++        if w in text:
++            return "night"
++    for w in _PERIOD_PM:
++        if w in text:
++            return "pm"
++    for w in _PERIOD_AM:
++        if w in text:
++            return "am"
++    return ""
++
++
++def parse_time(text: str) -> Optional[tuple[int, int]]:
++    """Extract (hour, minute) in 24-hour format from text.
++
++    Returns None when time is ambiguous (e.g. '8點' with no period marker).
++    Callers should route ambiguous text to Gemini for clarification.
++    """
++    # HH:MM is always unambiguous
++    m = _HHMM_RE.search(text)
++    if m:
++        h, mi = int(m.group(1)), int(m.group(2))
++        if 0 <= h <= 23 and 0 <= mi <= 59:
++            return h, mi
++
++    hour_m = _CHINESE_HOUR_RE.search(text)
++    if not hour_m:
++        return None
++
++    hour = int(hour_m.group(1))
++
++    minute = 0
++    if _CHINESE_HALF_RE.search(text):
++        minute = 30
++    else:
++        min_m = _CHINESE_MIN_RE.search(text)
++        if min_m:
++            minute = int(min_m.group(1))
++
++    period = _detect_period(text)
++
++    if period == "noon":
++        hour = 12 if hour == 12 else 12
++    elif period in ("pm", "night"):
++        if hour != 12:
++            hour += 12
++    elif period == "am":
++        if hour == 12:
++            hour = 0
++    else:
++        # No period marker: only treat as unambiguous if hour >= 13 (clear 24-h)
++        if hour < 13:
++            return None
++
++    if 0 <= hour <= 23 and 0 <= minute <= 59:
++        return hour, minute
++    return None
++
++
++def has_time_reference(text: str) -> bool:
++    """True when text contains any time reference (even ambiguous)."""
++    if _HHMM_RE.search(text):
++        return True
++    if _CHINESE_HOUR_RE.search(text):
++        return True
++    return False
++
++
++def has_period_only_no_hour(text: str) -> bool:
++    """
++    檢測文字是否有時段標記（早上/下午/晚上）但缺少具體小時。
++    例如："明天早上開燈" 有時段 "早上" 但沒有 "8點" 這樣的小時數。
++    這種情況應該轉給 Gemini 詢問確切時間。
++    """
++    # 檢查是否有時段
++    period = _detect_period(text)
++    if not period:
++        return False
++    
++    # 檢查是否有具體時間（H點、HH:MM 等）
++    if _HHMM_RE.search(text):
++        return False
++    if _CHINESE_HOUR_RE.search(text):
++        return False
++    
++    # 有時段但沒有具體小時 → True（應轉給 Gemini）
++    return True
++
++
++def _make_name(hour: int, minute: int, actions: list[dict[str, Any]]) -> str:
++    loc_label = {"LIVING": "客廳", "KITCHEN": "廚房", "GUEST": "客房"}
++    parts: list[str] = []
++    for a in actions:
++        t = str(a.get("type", "")).upper()
++        if t == "FAN":
++            parts.append("風扇" + ("開" if a.get("state") == "on" else "關"))
++        elif t == "LED":
++            loc = loc_label.get(str(a.get("location", "")).upper(), "燈")
++            parts.append(loc + "燈" + ("開" if a.get("state") == "on" else "關"))
++        elif t == "SET_TEMP":
++            parts.append(f"溫度設定 {a.get('value')}°C")
++    label = "、".join(parts) if parts else "排程"
++    return f"{hour:02d}:{minute:02d} {label}"
++
++
++class ScheduleFastPathParser:
++    """Fastpath parser for schedule add / manage commands."""
++
++    def parse_add(self, text: str) -> Optional[dict[str, Any]]:
++        """Return schedule dict if text is a clear schedule-add command.
++
++        Returns None if time is missing, ambiguous, or device action unclear.
++        In those cases the caller should fall through to Gemini.
++        
++        Special case: if text has period (早上/下午/晚上) but NO specific hour,
++        also return None so Gemini can clarify the time.
++        """
++        # 先檢查是否看起來像排程命令（有信號 or 有時段）
++        has_signal = any(w in text for w in _SCHEDULE_SIGNALS)
++        has_period = _detect_period(text) != ""
++        
++        if not has_signal and not has_period:
++            return None  # 不像排程命令 → 不處理
++        
++        # 檢查是否有時段但缺少具體小時（應轉給 Gemini）
++        if has_period and not has_time_reference(text):
++            return None  # 有時段但無具體小時 → Gemini 詢問確切時間
++        
++        if not has_time_reference(text):
++            return None
++
++        time_result = parse_time(text)
++        if time_result is None:
++            return None  # ambiguous → Gemini
++
++        hour, minute = time_result
++
++        # Reuse existing device fastpath to extract actions
++        from .fastpath_parser import FastPathParser
++        actions = FastPathParser().parse(text)
++        if not actions:
++            return None
++
++        # Extract date / recurrence via DateParser
++        from ..date_parser import DateParser
++        dp = DateParser()
++        recurrence_info = dp._parse_recurrence(text)
++        date_info = dp._parse_date(text) if not recurrence_info else None
++
++        extra: dict[str, Any] = {}
++        if recurrence_info:
++            extra["recurrence"] = recurrence_info.get("recurrence", "daily")
++            if "day" in recurrence_info:
++                extra["day"] = recurrence_info["day"]
++        elif date_info:
++            extra["year"] = date_info.get("year")
++            extra["month"] = date_info.get("month")
++            extra["day"] = date_info.get("day")
++            extra["recurrence"] = date_info.get("recurrence", "once")
++        else:
++            extra["recurrence"] = "daily"
++
++        name = _make_name(hour, minute, actions)
++        return {"hour": hour, "minute": minute, "actions": actions, "name": name, **extra}
++
++    def parse_manage(self, text: str) -> Optional[dict[str, Any]]:
++        """Return management intent dict: {op, id} or None."""
++        # 日期查詢：「查詢5月1號有哪些排程」
++        if any(kw in text for kw in _DATE_QUERY_SIGNALS):
++            date_m = _DATE_RE.search(text)
++            if date_m:
++                return {
++                    "op": "list_date",
++                    "month": int(date_m.group(1)),
++                    "day": int(date_m.group(2)),
++                    "id": None,
++                }
++            # 「今天的排程」
++            if "今天" in text:
++                now = datetime.now()
++                return {"op": "list_date", "month": now.month, "day": now.day, "id": None}
++
++        # 按時間刪除：「刪除晚上10點的排程」（有刪除關鍵字 + 有時間 + 無 ID）
++        _DELETE_KW = ("刪除", "移除", "取消")
++        if any(kw in text for kw in _DELETE_KW):
++            id_match = _ID_RE.search(text)
++            if not id_match and has_time_reference(text):
++                time_result = parse_time(text)
++                if time_result is not None:
++                    return {"op": "delete_by_time", "hour": time_result[0], "minute": time_result[1], "id": None}
++
++        for op, keywords in _MANAGE_MAP.items():
++            if any(kw in text for kw in keywords):
++                id_match = _ID_RE.search(text)
++                return {"op": op, "id": id_match.group(1) if id_match else None}
++        return None
+diff --git a/src/core/scheduler.py b/src/core/scheduler.py
+new file mode 100644
+index 0000000..ff97b54
+--- /dev/null
++++ b/src/core/scheduler.py
+@@ -0,0 +1,336 @@
++from __future__ import annotations
++
++import json
++import os
++import threading
++import time
++import uuid
++from datetime import datetime
++from pathlib import Path
++from typing import Any, Optional
++
++
++class ScheduleManager:
++    """Manage time-based automation rules for smart home devices with thread safety."""
++
++    MAX_SCHEDULES = 5
++
++    def __init__(self) -> None:
++        project_root = Path(__file__).resolve().parents[2]
++        self._path = project_root / "data" / "memory" / "schedules.json"
++        self._path.parent.mkdir(parents=True, exist_ok=True)
++        self._lock = threading.RLock()
++        try:
++            self.max_schedules = max(1, int(os.environ.get("MAX_SCHEDULES", str(self.MAX_SCHEDULES))))
++        except Exception:
++            self.max_schedules = self.MAX_SCHEDULES
++        self._user_overrides: dict[str, float] = {}  # device_key -> unblock_time (time.time())
++        if not self._path.exists():
++            self._write([])
++
++    def _read(self) -> list[dict[str, Any]]:
++        with self._lock:
++            try:
++                raw = self._path.read_text(encoding="utf-8")
++                data = json.loads(raw) if raw.strip() else []
++                return data if isinstance(data, list) else []
++            except Exception:
++                return []
++
++    def _write(self, rules: list[dict[str, Any]]) -> None:
++        with self._lock:
++            self._path.write_text(
++                json.dumps(rules, ensure_ascii=False, indent=2),
++                encoding="utf-8",
++            )
++
++    def add(
++        self,
++        hour: int,
++        minute: int,
++        actions: list[dict[str, Any]],
++        name: str = "",
++        year: Optional[int] = None,
++        month: Optional[int] = None,
++        day: Optional[int] = None,
++        second: int = 0,
++        recurrence: str = "once",
++    ) -> Optional[dict[str, Any]]:
++        """
++        新增排程規則。
++        
++        Args:
++            hour: 小時 (0-23)
++            minute: 分鐘 (0-59)
++            actions: 執行的動作清單
++            name: 排程名稱
++            year: 年份 (可選，無則每年重複)
++            month: 月份 (可選，無則每月重複)
++            day: 日期 (可選，無則每天重複)
++            second: 秒數 (0-59)
++            recurrence: 重複類型 ("once", "daily", "weekly", "monthly")
++            
++        Returns:
++            建立的排程物件，或 None 若達到上限或衝突
++        """
++        rules = self._read()
++
++        # 檢查排程數量上限
++        if len(rules) >= self.max_schedules:
++            return None
++
++        # 檢查時間衝突 (同時間同設備)
++        if self._has_conflict(rules, year, month, day, hour, minute, actions):
++            return None
++
++        rule: dict[str, Any] = {
++            "id": uuid.uuid4().hex[:8],
++            "name": name or self._generate_name(hour, minute, recurrence),
++            "hour": hour,
++            "minute": minute,
++            "second": second,
++            "actions": actions,
++            "enabled": True,
++            "recurrence": recurrence,  # "once", "daily", "weekly", "monthly"
++            "last_triggered": None,
++            "last_result": None,
++        }
++
++        # 若有指定日期，加入
++        if year is not None:
++            rule["year"] = year
++        if month is not None:
++            rule["month"] = month
++        if day is not None:
++            rule["day"] = day
++        if recurrence == "weekly" and "weekday" in actions[0] if actions else False:
++            rule["weekday"] = actions[0].get("weekday")
++
++        rules.append(rule)
++        self._write(rules)
++        return rule
++
++    def _has_conflict(
++        self,
++        rules: list[dict[str, Any]],
++        year: Optional[int],
++        month: Optional[int],
++        day: Optional[int],
++        hour: int,
++        minute: int,
++        new_actions: list[dict[str, Any]],
++    ) -> bool:
++        """檢查是否與現有排程衝突 (同時間同設備)。"""
++        new_devices = {action.get("type") for action in new_actions}
++
++        for rule in rules:
++            if not rule.get("enabled", True):
++                continue
++
++            # 檢查時間是否相同
++            if rule.get("hour") != hour or rule.get("minute") != minute:
++                continue
++
++            # 檢查日期是否相同 (若有指定的話)
++            if year is not None and rule.get("year") != year:
++                continue
++            if month is not None and rule.get("month") != month:
++                continue
++            if day is not None and rule.get("day") != day:
++                continue
++
++            # 檢查設備是否衝突
++            existing_devices = {action.get("type") for action in rule.get("actions", [])}
++            if new_devices & existing_devices:  # 有交集 = 衝突
++                return True
++
++        return False
++
++    def _generate_name(self, hour: int, minute: int, recurrence: str) -> str:
++        """根據時間和重複類型產生排程名稱。"""
++        time_str = f"{hour:02d}:{minute:02d}"
++        if recurrence == "daily":
++            return f"每天 {time_str}"
++        elif recurrence == "weekly":
++            return f"每週 {time_str}"
++        elif recurrence == "monthly":
++            return f"每月 {time_str}"
++        else:
++            return time_str
++
++    def _action_key(self, action: dict[str, Any]) -> str:
++        """產生設備唯一識別 key，用於封鎖判斷。"""
++        action_type = str(action.get("type", "")).upper()
++        if action_type == "LED":
++            location = str(action.get("location", "")).upper()
++            return f"LED_{location}"
++        return action_type
++
++    def block_devices(self, actions: list[dict[str, Any]], duration_seconds: int = 60) -> None:
++        """使用者執行命令後，封鎖對應設備的排程 duration_seconds 秒。"""
++        until = time.time() + duration_seconds
++        for action in actions:
++            self._user_overrides[self._action_key(action)] = until
++
++    def _is_device_blocked(self, action: dict[str, Any]) -> bool:
++        """檢查該設備動作是否在使用者封鎖期間內。"""
++        key = self._action_key(action)
++        until = self._user_overrides.get(key)
++        if until is None:
++            return False
++        if time.time() >= until:
++            del self._user_overrides[key]
++            return False
++        return True
++
++    def list_all(self) -> list[dict[str, Any]]:
++        return self._read()
++
++    def list_by_date(self, month: int, day: int, year: Optional[int] = None) -> list[dict[str, Any]]:
++        """回傳在指定日期會觸發的所有排程（含每天重複型）。"""
++        rules = self._read()
++        result = []
++        for rule in rules:
++            recurrence = rule.get("recurrence", "once")
++
++            if recurrence == "daily":
++                result.append(rule)
++                continue
++
++            if recurrence == "monthly":
++                if rule.get("day") == day:
++                    result.append(rule)
++                continue
++
++            if recurrence == "once":
++                if rule.get("month") == month and rule.get("day") == day:
++                    if year is None or rule.get("year") == year:
++                        result.append(rule)
++                continue
++
++            # 沒有設定日期的舊格式排程視為每天觸發
++            if rule.get("month") is None and rule.get("day") is None:
++                result.append(rule)
++
++        return result
++
++    def delete_by_time(self, hour: int, minute: int) -> list[str]:
++        """刪除所有符合指定時間的排程，回傳被刪除的 ID 列表。"""
++        with self._lock:
++            rules = self._read()
++            matched = [r for r in rules if r.get("hour") == hour and r.get("minute") == minute]
++            if not matched:
++                return []
++            new_rules = [r for r in rules if not (r.get("hour") == hour and r.get("minute") == minute)]
++            self._write(new_rules)
++            return [r["id"] for r in matched]
++
++    def delete(self, rule_id: str) -> bool:
++        with self._lock:
++            rules = self._read()
++            new_rules = [r for r in rules if r.get("id") != rule_id]
++            if len(new_rules) == len(rules):
++                return False
++            self._write(new_rules)
++            return True
++
++    def toggle(self, rule_id: str) -> Optional[bool]:
++        """Enable or disable a rule. Returns new enabled state, or None if not found."""
++        with self._lock:
++            rules = self._read()
++            for rule in rules:
++                if rule.get("id") == rule_id:
++                    rule["enabled"] = not rule.get("enabled", True)
++                    self._write(rules)
++                    return bool(rule["enabled"])
++            return None
++
++    def set_enabled(self, rule_id: str, enabled: bool) -> Optional[bool]:
++        """Set enabled state explicitly. Returns new state, or None if not found."""
++        with self._lock:
++            rules = self._read()
++            for rule in rules:
++                if rule.get("id") == rule_id:
++                    rule["enabled"] = bool(enabled)
++                    self._write(rules)
++                    return bool(rule["enabled"])
++            return None
++
++    def tick(self, device_controller: Any) -> list[dict[str, Any]]:
++        """
++        檢查當前時間並執行匹配的排程規則。
++        執行完後：
++        - 一次性排程自動刪除
++        - 重複排程保留並更新執行時間
++        
++        Returns:
++            觸發的排程清單
++        """
++        now = time.localtime()
++        current_slot = (
++            f"{now.tm_year}-{now.tm_mon:02d}-{now.tm_mday:02d} "
++            f"{now.tm_hour:02d}:{now.tm_min:02d}"
++        )
++
++        with self._lock:
++            rules = self._read()
++            triggered: list[dict[str, Any]] = []
++            changed = False
++            rules_to_delete = []
++
++            for idx, rule in enumerate(rules):
++                if not rule.get("enabled", True):
++                    continue
++
++                # 檢查時間是否匹配
++                if rule.get("hour") != now.tm_hour or rule.get("minute") != now.tm_min:
++                    continue
++
++                # 檢查日期是否匹配 (若有指定的話)
++                if rule.get("year") and rule.get("year") != now.tm_year:
++                    continue
++                if rule.get("month") and rule.get("month") != now.tm_mon:
++                    continue
++                if rule.get("day") and rule.get("day") != now.tm_mday:
++                    continue
++
++                # 防止同分鐘內重複執行
++                if rule.get("last_triggered") == current_slot:
++                    continue
++
++                # 過濾掉使用者近期手動控制的設備（使用者命令優先）
++                actions = rule.get("actions", [])
++                actions = [a for a in actions if not self._is_device_blocked(a)]
++                if not actions:
++                    continue
++
++                # 執行排程
++                try:
++                    if device_controller is not None:
++                        results = device_controller.execute_actions(actions)
++                        success = all(r.get("success", False) for r in results)
++                    else:
++                        success = True
++                    result_text = "成功" if success else "部分失敗"
++                except Exception as exc:
++                    success = False
++                    result_text = str(exc)
++
++                rule["last_triggered"] = current_slot
++                rule["last_result"] = result_text
++                changed = True
++                triggered.append({"rule": dict(rule), "success": success, "result": result_text})
++
++                # 一次性排程執行後標記為刪除
++                if rule.get("recurrence") == "once":
++                    rules_to_delete.append(idx)
++
++            # 反向遍歷以便正確刪除
++            for idx in sorted(rules_to_delete, reverse=True):
++                del rules[idx]
++                changed = True
++
++            if changed:
++                self._write(rules)
++
++            return triggered
+diff --git a/src/compat/device_controller.py b/src/device_controller.py
+similarity index 100%
+rename from src/compat/device_controller.py
+rename to src/device_controller.py
+diff --git a/src/compat/fastpath_parser.py b/src/fastpath_parser.py
+similarity index 100%
+rename from src/compat/fastpath_parser.py
+rename to src/fastpath_parser.py
+diff --git a/src/compat/gemini_parser.py b/src/gemini_parser.py
+similarity index 100%
+rename from src/compat/gemini_parser.py
+rename to src/gemini_parser.py
+diff --git a/src/gui/__init__.py b/src/gui/__init__.py
+deleted file mode 100644
+index dbf9cf3..0000000
+--- a/src/gui/__init__.py
++++ /dev/null
+@@ -1 +0,0 @@
+-"""GUI package for desktop dashboard."""
+diff --git a/src/gui/app.py b/src/gui/app.py
+deleted file mode 100644
+index 045ef0f..0000000
+--- a/src/gui/app.py
++++ /dev/null
+@@ -1,632 +0,0 @@
+-from __future__ import annotations
+-
+-import json
+-import locale
+-import threading
+-import tkinter as tk
+-from datetime import datetime
+-from pathlib import Path
+-from tkinter import scrolledtext
+-from tkinter import font as tkfont
+-from tkinter import ttk
+-from typing import Any
+-
+-try:
+-    from src.utils.tts import speak as _tts_speak
+-except Exception:
+-    def _tts_speak(text: str) -> None:  # type: ignore[misc]
+-        pass
+-
+-
+-def _speak_async(text: str) -> None:
+-    """在背景執行緒播放 TTS，不阻塞 GUI 主執行緒。"""
+-    t = threading.Thread(target=_tts_speak, args=(text,), daemon=True)
+-    t.start()
+-
+-from src.gui.popup_views import create_panel_popup, create_text_popup
+-from src.runtime import build_runtime
+-from src.services.gui_command_service import GuiCommandPresentation, execute_gui_text_command, format_reply_for_language
+-from src.services.gui_state_service import display_location, display_state_value, format_device_state_content, format_queue_content
+-from src.utils.config import DATA_DIR
+-
+-
+-I18N: dict[str, dict[str, str]] = {
+-    "zh": {
+-        "title": "智慧家庭控制台",
+-        "system_ready": "系統已啟動，隨時可叫我",
+-        "idle": "閒置當中",
+-        "processing": "處理中",
+-        "ready_detail": "系統已準備完成，可以直接輸入命令。",
+-        "processing_detail": "正在分析你的指令並產生回應。",
+-        "status_prefix": "狀態",
+-        "input_label": "輸入命令",
+-        "send": "送出",
+-        "conversation": "對話紀錄",
+-        "you": "你",
+-        "assistant": "助理",
+-        "system": "系統",
+-        "dashboard": "控制面板",
+-        "clock": "目前時間",
+-        "device_state": "家具狀態",
+-        "temperature": "設定溫度",
+-        "fan": "風扇",
+-        "light": "燈光",
+-        "ambient_temp": "環境溫度",
+-        "ambient_humidity": "環境濕度",
+-        "on": "開啟",
+-        "off": "關閉",
+-        "unknown": "未知",
+-        "queue_empty": "目前沒有排程項目。",
+-        "queue_item": "排程項目",
+-        "queue_source": "來源",
+-        "queue_status": "狀態",
+-        "queue_time": "執行時間",
+-        "queue_device": "裝置",
+-        "queue_action": "動作",
+-        "kitchen": "廚房",
+-        "living": "客廳",
+-        "guest": "客房",
+-        "habits": "使用者習慣（開發中）",
+-        "queue": "排程 Queue",
+-        "refresh": "重新整理",
+-        "last_sync": "最後同步",
+-        "no_data": "目前沒有資料",
+-        "lang": "語言",
+-        "reply": "回覆",
+-        "coming_soon": "此功能尚未接上，先保留介面位置。",
+-        "chat_hint": "按 Enter 或點送出即可對話。",
+-    },
+-    "en": {
+-        "title": "Smart Home Console",
+-        "system_ready": "System is ready. You can wake me anytime.",
+-        "idle": "Idle",
+-        "processing": "Processing",
+-        "ready_detail": "The system is ready. You can type a command now.",
+-        "processing_detail": "Analyzing your command and preparing a reply.",
+-        "status_prefix": "Status",
+-        "input_label": "Command",
+-        "send": "Send",
+-        "conversation": "Conversation",
+-        "you": "You",
+-        "assistant": "Assistant",
+-        "system": "System",
+-        "dashboard": "Dashboard",
+-        "clock": "Current Time",
+-        "device_state": "Device States",
+-        "temperature": "Set Temperature",
+-        "fan": "Fan",
+-        "light": "Lights",
+-        "ambient_temp": "Ambient Temperature",
+-        "ambient_humidity": "Ambient Humidity",
+-        "on": "On",
+-        "off": "Off",
+-        "unknown": "Unknown",
+-        "queue_empty": "No schedule items yet.",
+-        "queue_item": "Queue Item",
+-        "queue_source": "Source",
+-        "queue_status": "Status",
+-        "queue_time": "Run Time",
+-        "queue_device": "Device",
+-        "queue_action": "Action",
+-        "kitchen": "Kitchen",
+-        "living": "Living Room",
+-        "guest": "Guest Room",
+-        "habits": "User Habits (Coming Soon)",
+-        "queue": "Schedule Queue",
+-        "refresh": "Refresh",
+-        "last_sync": "Last Sync",
+-        "no_data": "No data yet",
+-        "lang": "Language",
+-        "reply": "Reply",
+-        "coming_soon": "This feature is not wired yet. The slot is reserved in the UI.",
+-        "chat_hint": "Press Enter or click Send to chat.",
+-    },
+-}
+-
+-
+-WINDOW_TITLE_ASCII = "Smart Home Console"
+-WINDOW_TITLE_SUFFIXES = {
+-    "zh": {
+-        "家具狀態": "Device States",
+-        "使用者習慣（開發中）": "User Habits",
+-        "排程 Queue": "Schedule Queue",
+-    },
+-    "en": {
+-        "Device States": "Device States",
+-        "User Habits (Coming Soon)": "User Habits",
+-        "Schedule Queue": "Schedule Queue",
+-    },
+-}
+-
+-
+-class DashboardApp(tk.Tk):
+-    def __init__(self) -> None:
+-        super().__init__()
+-        self.chat_limit = 20
+-        self.lang = tk.StringVar(value="zh")
+-        self.current_status = tk.StringVar(value="")
+-        self.time_text = tk.StringVar(value="")
+-        self.command_text = tk.StringVar(value="")
+-        self.reply_text = tk.StringVar(value="")
+-
+-        self.runtime = build_runtime(mode="desktop", memory_keep=self.chat_limit, with_device=False)
+-        self.state = self.runtime.state
+-        self.memory = self.runtime.memory
+-        self.agent = self.runtime.agent
+-        self.schedule_path = Path(DATA_DIR) / "memory" / "schedule_queue.json"
+-        self.chat_history: list[tuple[str, str]] = []
+-        self.ui_font_size = 11
+-        self.zh_font_family, self.en_font_family = self._resolve_font_families()
+-        self.has_cjk_font = self.zh_font_family not in {"DejaVu Sans", "Noto Sans", "Liberation Sans", "Arial", "Helvetica", "Ubuntu"}
+-        self._active_font_family = self.zh_font_family if self.lang.get() == "zh" else self.en_font_family
+-        self._build_fonts()
+-
+-        self._set_window_title()
+-        self.geometry("1040x620")
+-        self.minsize(900, 540)
+-
+-        self._build_layout()
+-        self._set_boot_status()
+-        self._tick_clock()
+-        self.after(50, self._focus_input)
+-        self.after(300, lambda: _speak_async(I18N["zh"]["system_ready"]) if self.lang.get() == "zh" else None)
+-
+-    def tr(self, key: str) -> str:
+-        return I18N[self.lang.get()].get(key, key)
+-
+-    def _ensure_text(self, value: Any) -> str:
+-        if isinstance(value, str):
+-            return value
+-        if isinstance(value, bytes):
+-            encodings = ["utf-8", locale.getpreferredencoding(False), "cp950", "big5"]
+-            tried: set[str] = set()
+-            for encoding in encodings:
+-                if not encoding or encoding in tried:
+-                    continue
+-                tried.add(encoding)
+-                try:
+-                    return value.decode(encoding)
+-                except UnicodeDecodeError:
+-                    continue
+-            return value.decode("utf-8", errors="replace")
+-        return str(value)
+-
+-    def _safe_title_text(self) -> str:
+-        raw_title = self._ensure_text(I18N[self.lang.get()]["title"])
+-        try:
+-            raw_title.encode("ascii")
+-            return raw_title
+-        except UnicodeEncodeError:
+-            return WINDOW_TITLE_ASCII
+-
+-    def _safe_child_title_text(self, raw_title: str) -> str:
+-        clean_title = self._ensure_text(raw_title)
+-        mapped = WINDOW_TITLE_SUFFIXES.get(self.lang.get(), {}).get(clean_title)
+-        if mapped:
+-            return f"{WINDOW_TITLE_ASCII} - {mapped}"
+-        try:
+-            clean_title.encode("ascii")
+-            return f"{WINDOW_TITLE_ASCII} - {clean_title}"
+-        except UnicodeEncodeError:
+-            return WINDOW_TITLE_ASCII
+-
+-    def _set_window_title(self) -> None:
+-        safe_title = self._safe_title_text()
+-        self.title(safe_title)
+-        self.wm_title(safe_title)
+-
+-    def _pick_first_available_font(self, candidates: list[str]) -> str | None:
+-        available = {name.lower(): name for name in tkfont.families(self)}
+-        for candidate in candidates:
+-            found = available.get(candidate.lower())
+-            if found:
+-                return found
+-        return None
+-
+-    def _resolve_font_families(self) -> tuple[str, str]:
+-        zh_candidates = [
+-            "Noto Sans CJK TC",
+-            "Noto Sans CJK SC",
+-            "Noto Sans CJK JP",
+-            "Source Han Sans TC",
+-            "WenQuanYi Zen Hei",
+-            "PingFang TC",
+-            "Microsoft JhengHei",
+-            "AR PL UMing TW",
+-            "AR PL UKai TW",
+-        ]
+-        en_candidates = [
+-            "DejaVu Sans",
+-            "Noto Sans",
+-            "Liberation Sans",
+-            "Ubuntu",
+-            "Arial",
+-            "Helvetica",
+-        ]
+-
+-        zh_font = self._pick_first_available_font(zh_candidates)
+-        en_font = self._pick_first_available_font(en_candidates)
+-
+-        safe_fallback = "DejaVu Sans"
+-        return zh_font or safe_fallback, en_font or zh_font or safe_fallback
+-
+-    def _current_font_family(self) -> str:
+-        return self.zh_font_family if self.lang.get() == "zh" else self.en_font_family
+-
+-    def _build_fonts(self) -> None:
+-        self._active_font_family = self._current_font_family()
+-        self.font_normal = tkfont.Font(self, family=self._active_font_family, size=self.ui_font_size)
+-        self.font_title = tkfont.Font(self, family=self._active_font_family, size=self.ui_font_size + 3, weight="bold")
+-        self.font_status = tkfont.Font(self, family=self._active_font_family, size=self.ui_font_size + 1)
+-        self.font_mono = tkfont.Font(self, family=self._active_font_family, size=self.ui_font_size)
+-        self.font_chat_speaker = tkfont.Font(self, family=self._active_font_family, size=self.ui_font_size, weight="bold")
+-
+-    def _apply_widget_fonts(self) -> None:
+-        widgets = [
+-            getattr(self, "system_title", None),
+-            getattr(self, "lang_label", None),
+-            getattr(self, "status_label", None),
+-            getattr(self, "entry_input", None),
+-            getattr(self, "send_btn", None),
+-            getattr(self, "chat_box", None),
+-            getattr(self, "clock_label", None),
+-            getattr(self, "device_btn", None),
+-            getattr(self, "habits_btn", None),
+-            getattr(self, "queue_btn", None),
+-            getattr(self, "sync_label", None),
+-            getattr(self, "font_notice_label", None),
+-        ]
+-        for widget in widgets:
+-            if widget is None:
+-                continue
+-            if widget is self.system_title:
+-                widget.configure(font=self.font_title)
+-            elif widget is self.status_label:
+-                widget.configure(font=self.font_status)
+-            elif widget is self.chat_box:
+-                widget.configure(font=self.font_normal)
+-            else:
+-                widget.configure(font=self.font_normal)
+-
+-    def _load_chat_history(self) -> None:
+-        try:
+-            rows = self.memory._read_short().get("interactions", [])
+-        except Exception:
+-            rows = []
+-
+-        self.chat_history = []
+-        for row in rows[-self.chat_limit :]:
+-            user_text = self._ensure_text(row.get("user", "")).strip()
+-            assistant_text = self._ensure_text(row.get("assistant", "")).strip()
+-            if user_text:
+-                self.chat_history.append((self.tr("you"), user_text))
+-            if assistant_text:
+-                self.chat_history.append((self.tr("assistant"), format_reply_for_language(assistant_text, self.lang.get())))
+-
+-    def _append_chat_message(self, speaker: str, message: str) -> None:
+-        text = self._ensure_text(message).strip()
+-        if not text:
+-            return
+-
+-        self.chat_history.append((speaker, text))
+-        self.chat_history = self.chat_history[-self.chat_limit :]
+-        self._render_chat_history()
+-
+-    def _focus_input(self) -> None:
+-        if hasattr(self, "entry_input"):
+-            self.entry_input.focus_set()
+-
+-    def _set_status(self, state_text: str, detail_text: str) -> None:
+-        full_status = f"{self.tr('status_prefix')}: {state_text}"
+-        self.current_status.set(full_status)
+-        self.status_label.configure(text=full_status)
+-        self.status_detail_label.configure(text=self._ensure_text(detail_text))
+-
+-    def _set_input_enabled(self, enabled: bool) -> None:
+-        state = tk.NORMAL if enabled else tk.DISABLED
+-        self.send_btn.configure(state=state)
+-        self.entry_input.configure(state=state)
+-
+-    def _begin_command_flow(self, raw: str) -> None:
+-        self._set_input_enabled(False)
+-        self._set_status(self.tr("processing"), self.tr("processing_detail"))
+-        self._append_chat_message(self.tr("you"), raw)
+-        self.command_text.set("")
+-
+-    def _finish_command_flow(self) -> None:
+-        self._set_status(self.tr("idle"), self.tr("ready_detail"))
+-        self._set_input_enabled(True)
+-        self._focus_input()
+-
+-    def _apply_command_result(self, result: GuiCommandPresentation) -> None:
+-        self.reply_text.set(result.formatted_reply)
+-        self._append_chat_message(self.tr("assistant"), result.formatted_reply)
+-        if result.should_speak:
+-            _speak_async(result.raw_reply)
+-
+-    def _render_chat_history(self) -> None:
+-        if not hasattr(self, "chat_box"):
+-            return
+-
+-        self.chat_box.configure(state=tk.NORMAL)
+-        self.chat_box.delete("1.0", tk.END)
+-        for speaker, message in self.chat_history:
+-            if speaker == self.tr("you"):
+-                speaker_tag = "speaker_user"
+-                body_tag = "body_user"
+-            elif speaker == self.tr("assistant"):
+-                speaker_tag = "speaker_assistant"
+-                body_tag = "body_assistant"
+-            else:
+-                speaker_tag = "speaker_system"
+-                body_tag = "body_system"
+-
+-            self.chat_box.insert(tk.END, f"{speaker}\n", speaker_tag)
+-            self.chat_box.insert(tk.END, f"{message}\n\n", body_tag)
+-        self.chat_box.configure(state=tk.DISABLED)
+-        self.chat_box.see(tk.END)
+-
+-    def _configure_chat_tags(self) -> None:
+-        self.chat_box.tag_configure("speaker_user", foreground="#1d4ed8", font=self.font_chat_speaker, spacing1=4)
+-        self.chat_box.tag_configure("body_user", foreground="#0f172a", lmargin1=18, lmargin2=18, spacing3=8)
+-        self.chat_box.tag_configure("speaker_assistant", foreground="#047857", font=self.font_chat_speaker, spacing1=4)
+-        self.chat_box.tag_configure("body_assistant", foreground="#111827", lmargin1=18, lmargin2=18, spacing3=8)
+-        self.chat_box.tag_configure("speaker_system", foreground="#b45309", font=self.font_chat_speaker, spacing1=4)
+-        self.chat_box.tag_configure("body_system", foreground="#78350f", lmargin1=18, lmargin2=18, spacing3=8)
+-
+-    def _format_device_state_content(self) -> str:
+-        return format_device_state_content(self.state.get_state(), self.tr, self._ensure_text)
+-
+-    def _format_queue_content(self) -> str:
+-        return format_queue_content(self._read_schedule_queue(), self.tr, self._ensure_text)
+-
+-    def _build_layout(self) -> None:
+-        wrapper = ttk.Frame(self, padding=12)
+-        wrapper.pack(fill=tk.BOTH, expand=True)
+-
+-        top_bar = ttk.Frame(wrapper)
+-        top_bar.pack(fill=tk.X)
+-
+-        self.system_title = tk.Label(top_bar, text=self._ensure_text(self.tr("system_ready")), anchor="w", font=self.font_title)
+-        self.system_title.pack(side=tk.LEFT)
+-
+-        lang_group = ttk.Frame(top_bar)
+-        lang_group.pack(side=tk.RIGHT)
+-        self.lang_label = tk.Label(lang_group, text=f"{self._ensure_text(self.tr('lang'))}: ", font=self.font_normal)
+-        self.lang_label.pack(side=tk.LEFT)
+-        lang_picker = ttk.Combobox(lang_group, textvariable=self.lang, values=["zh", "en"], width=6, state="readonly")
+-        lang_picker.pack(side=tk.LEFT)
+-        lang_picker.bind("<<ComboboxSelected>>", self._on_language_change)
+-
+-        body = ttk.Frame(wrapper)
+-        body.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
+-        body.columnconfigure(0, weight=3)
+-        body.columnconfigure(1, weight=2)
+-        body.rowconfigure(0, weight=1)
+-
+-        left = ttk.Frame(body, padding=(0, 0, 10, 0))
+-        left.grid(row=0, column=0, sticky="nsew")
+-
+-        self.status_label = tk.Label(left, text="", anchor="w", font=self.font_status)
+-        self.status_label.pack(anchor="w", pady=(0, 12))
+-
+-        self.status_detail_label = tk.Label(left, text="", anchor="w", justify=tk.LEFT, fg="#475569", font=self.font_normal)
+-        self.status_detail_label.pack(anchor="w", pady=(0, 10))
+-
+-        self.font_notice_label = tk.Label(left, text="", anchor="w", fg="#b45309", font=self.font_normal)
+-        self.font_notice_label.pack(anchor="w", pady=(0, 8))
+-
+-        self.chat_hint_label = tk.Label(left, text=self._ensure_text(self.tr("chat_hint")), anchor="w", fg="#475569", font=self.font_normal)
+-        self.chat_hint_label.pack(anchor="w", pady=(0, 8))
+-
+-        cmd_frame = ttk.LabelFrame(left, text=self.tr("input_label"), padding=10)
+-        cmd_frame.pack(fill=tk.X)
+-        self.entry_input = tk.Entry(cmd_frame, textvariable=self.command_text, font=self.font_normal)
+-        self.entry_input.pack(side=tk.LEFT, fill=tk.X, expand=True)
+-        self.entry_input.bind("<Return>", self._on_send)
+-
+-        self.send_btn = tk.Button(cmd_frame, text=self._ensure_text(self.tr("send")), command=self._on_send, font=self.font_normal)
+-        self.send_btn.pack(side=tk.LEFT, padx=(8, 0))
+-
+-        self.conversation_frame = ttk.LabelFrame(left, text=self.tr("conversation"), padding=10)
+-        self.conversation_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
+-
+-        self.chat_box = scrolledtext.ScrolledText(
+-            self.conversation_frame,
+-            wrap=tk.WORD,
+-            state=tk.DISABLED,
+-            height=16,
+-            font=self.font_normal,
+-            relief=tk.FLAT,
+-            padx=8,
+-            pady=8,
+-        )
+-        self.chat_box.pack(fill=tk.BOTH, expand=True)
+-        self._configure_chat_tags()
+-
+-        self._load_chat_history()
+-        if not self.chat_history:
+-            self.chat_history.append((self.tr("system"), self._ensure_text(self.tr("system_ready"))))
+-        self._render_chat_history()
+-
+-        right = ttk.LabelFrame(body, text=self.tr("dashboard"), padding=10)
+-        self.dashboard_frame = right
+-        right.grid(row=0, column=1, sticky="nsew")
+-
+-        self.clock_label = tk.Label(right, text="", anchor="w", font=self.font_normal)
+-        self.clock_label.pack(anchor="w")
+-
+-        btns = ttk.Frame(right)
+-        btns.pack(fill=tk.X, pady=(10, 8))
+-        self.device_btn = tk.Button(btns, text=self._ensure_text(self.tr("device_state")), command=self._open_device_state, font=self.font_normal)
+-        self.device_btn.pack(fill=tk.X, pady=3)
+-        self.habits_btn = tk.Button(
+-            btns,
+-            text=self._ensure_text(self.tr("habits")),
+-            state=tk.DISABLED,
+-            disabledforeground="#6b7280",
+-            font=self.font_normal,
+-        )
+-        self.habits_btn.pack(fill=tk.X, pady=3)
+-        self.habits_hint_label = tk.Label(right, text=self._ensure_text(self.tr("coming_soon")), anchor="w", justify=tk.LEFT, wraplength=250, fg="#6b7280", font=self.font_normal)
+-        self.habits_hint_label.pack(fill=tk.X, pady=(0, 8))
+-        self.queue_btn = tk.Button(btns, text=self._ensure_text(self.tr("queue")), command=self._open_queue, font=self.font_normal)
+-        self.queue_btn.pack(fill=tk.X, pady=3)
+-
+-        self.sync_label = tk.Label(right, text="", anchor="w", font=self.font_normal)
+-        self.sync_label.pack(anchor="w", pady=(8, 0))
+-
+-        self._apply_widget_fonts()
+-
+-    def _set_boot_status(self) -> None:
+-        self._set_status(self.tr("idle"), self.tr("ready_detail"))
+-        if self.lang.get() == "zh" and not self.has_cjk_font:
+-            self.font_notice_label.configure(text="警告: 系統未偵測到中文字型，請安裝 fonts-noto-cjk 或 fonts-wqy-zenhei。")
+-        else:
+-            self.font_notice_label.configure(text="")
+-
+-    def _tick_clock(self) -> None:
+-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+-        self.time_text.set(now)
+-        self.clock_label.configure(text=f"{self._ensure_text(self.tr('clock'))}: {now}")
+-        self.sync_label.configure(text=f"{self._ensure_text(self.tr('last_sync'))}: {now}")
+-        self.after(1000, self._tick_clock)
+-
+-    def _on_send(self, event: tk.Event | None = None) -> None:
+-        raw = self.command_text.get().strip()
+-        if not raw:
+-            self._focus_input()
+-            return
+-
+-        self._begin_command_flow(raw)
+-        current_language = self.lang.get()
+-
+-        def _worker() -> None:
+-            result = execute_gui_text_command(self.agent, raw, current_language)
+-            self.after(0, lambda: self._on_send_done(result))
+-
+-        threading.Thread(target=_worker, daemon=True).start()
+-
+-    def _on_send_done(self, result: GuiCommandPresentation) -> None:
+-        self._apply_command_result(result)
+-        self._finish_command_flow()
+-
+-    def _read_schedule_queue(self) -> list[dict[str, Any]]:
+-        if not self.schedule_path.exists():
+-            return []
+-        try:
+-            payload = json.loads(self.schedule_path.read_text(encoding="utf-8"))
+-        except Exception:
+-            return []
+-        if isinstance(payload, dict):
+-            items = payload.get("items", [])
+-            return [x for x in items if isinstance(x, dict)] if isinstance(items, list) else []
+-        if isinstance(payload, list):
+-            return [x for x in payload if isinstance(x, dict)]
+-        return []
+-
+-    def _open_device_state(self) -> None:
+-        safe_title = self._safe_child_title_text(self._ensure_text(self.tr("device_state")))
+-
+-        def _render(target: ttk.Frame) -> None:
+-            for child in target.winfo_children():
+-                child.destroy()
+-
+-            state = self.state.get_state()
+-
+-            climate_lf = ttk.LabelFrame(target, text=self._ensure_text(self.tr("temperature") + " / " + self.tr("fan")), padding=10)
+-            climate_lf.pack(fill=tk.X, pady=(0, 8))
+-            climate_lf.columnconfigure(1, weight=1)
+-
+-            rows_climate = [
+-                (self.tr("temperature"), f"{state.get('temperature', self.tr('unknown'))}"),
+-                (self.tr("fan"), display_state_value(state.get("fan"), self.tr, self._ensure_text)),
+-                (self.tr("ambient_temp"), self._ensure_text(str(state.get("ambient_temp") or self.tr("unknown")))),
+-                (self.tr("ambient_humidity"), self._ensure_text(str(state.get("ambient_humidity") or self.tr("unknown")))),
+-            ]
+-            for r, (label_text, value_text) in enumerate(rows_climate):
+-                tk.Label(climate_lf, text=self._ensure_text(label_text), anchor="w", font=self.font_normal, fg="#374151").grid(row=r, column=0, sticky="w", pady=2, padx=(0, 16))
+-                color = "#16a34a" if value_text in {self.tr("on"), "on", "On"} else ("#dc2626" if value_text in {self.tr("off"), "off", "Off"} else "#1e293b")
+-                tk.Label(climate_lf, text=self._ensure_text(value_text), anchor="w", font=self.font_normal, fg=color).grid(row=r, column=1, sticky="w", pady=2)
+-
+-            light_lf = ttk.LabelFrame(target, text=self._ensure_text(self.tr("light")), padding=10)
+-            light_lf.pack(fill=tk.X, pady=(0, 8))
+-            light_lf.columnconfigure(1, weight=1)
+-
+-            light_state = state.get("light", {})
+-            if isinstance(light_state, dict) and light_state:
+-                for r, (location, status) in enumerate(light_state.items()):
+-                    loc_text = display_location(location, self.tr, self._ensure_text)
+-                    val_text = display_state_value(status, self.tr, self._ensure_text)
+-                    dot_color = "#16a34a" if str(status).lower() == "on" else "#9ca3af"
+-                    row_frame = ttk.Frame(light_lf)
+-                    row_frame.grid(row=r, column=0, columnspan=2, sticky="ew", pady=2)
+-                    tk.Label(row_frame, text="●", fg=dot_color, font=self.font_normal).pack(side=tk.LEFT, padx=(0, 6))
+-                    tk.Label(row_frame, text=self._ensure_text(loc_text), anchor="w", font=self.font_normal, fg="#374151").pack(side=tk.LEFT)
+-                    tk.Label(row_frame, text=self._ensure_text(val_text), anchor="w", font=self.font_normal, fg="#16a34a" if str(status).lower() == "on" else "#6b7280").pack(side=tk.RIGHT)
+-            else:
+-                tk.Label(light_lf, text=self._ensure_text(self.tr("no_data")), anchor="w", font=self.font_normal, fg="#9ca3af").grid(row=0, column=0, sticky="w")
+-
+-        create_panel_popup(
+-            self,
+-            safe_title=safe_title,
+-            heading_text=self._ensure_text(self.tr("device_state")),
+-            heading_font=self.font_title,
+-            button_font=self.font_normal,
+-            geometry="420x380",
+-            refresh_label=self._ensure_text(self.tr("refresh")),
+-            on_refresh=_render,
+-            padding=14,
+-            resizable=(False, False),
+-        )
+-
+-    def _open_queue(self) -> None:
+-        self._open_text_window(self._ensure_text(self.tr("queue")), self._format_queue_content())
+-
+-    def _open_text_window(self, title: str, content: str) -> None:
+-        create_text_popup(
+-            self,
+-            safe_title=self._safe_child_title_text(title),
+-            heading_text=self._ensure_text(title),
+-            heading_font=self.font_title,
+-            body_font=self.font_mono,
+-            button_font=self.font_normal,
+-            geometry="560x360",
+-            refresh_label=self._ensure_text(self.tr("refresh")),
+-            initial_content=content,
+-            on_refresh=lambda: self._get_window_content(title),
+-        )
+-
+-    def _get_window_content(self, title: str) -> str:
+-        if title == self.tr("device_state"):
+-            return self._format_device_state_content()
+-        if title == self.tr("queue"):
+-            return self._format_queue_content()
+-        return self._ensure_text(self.tr("no_data"))
+-
+-    def _on_language_change(self, event: tk.Event | None = None) -> None:
+-        self._build_fonts()
+-        self._apply_widget_fonts()
+-        self._set_window_title()
+-        self._configure_chat_tags()
+-        self.system_title.configure(text=self._ensure_text(self.tr("system_ready")))
+-        self.lang_label.configure(text=f"{self._ensure_text(self.tr('lang'))}: ")
+-        self.chat_hint_label.configure(text=self._ensure_text(self.tr("chat_hint")))
+-        self.send_btn.configure(text=self._ensure_text(self.tr("send")))
+-        self.conversation_frame.configure(text=self._ensure_text(self.tr("conversation")))
+-        self.dashboard_frame.configure(text=self._ensure_text(self.tr("dashboard")))
+-        self.device_btn.configure(text=self._ensure_text(self.tr("device_state")))
+-        self.habits_btn.configure(text=self._ensure_text(self.tr("habits")))
+-        self.habits_hint_label.configure(text=self._ensure_text(self.tr("coming_soon")))
+-        self.queue_btn.configure(text=self._ensure_text(self.tr("queue")))
+-        self._load_chat_history()
+-        if not self.chat_history:
+-            self.chat_history.append((self.tr("system"), self._ensure_text(self.tr("system_ready"))))
+-        self._render_chat_history()
+-        self._set_boot_status()
+-        self._focus_input()
+-
+-
+-def run_gui() -> None:
+-    app = DashboardApp()
+-    app.mainloop()
+diff --git a/src/gui/popup_views.py b/src/gui/popup_views.py
+deleted file mode 100644
+index e422ebb..0000000
+--- a/src/gui/popup_views.py
++++ /dev/null
+@@ -1,112 +0,0 @@
+-from __future__ import annotations
+-
+-import tkinter as tk
+-from tkinter import ttk
+-from tkinter.font import Font
+-from typing import Callable
+-
+-
+-def create_popup_shell(
+-    parent: tk.Misc,
+-    *,
+-    safe_title: str,
+-    heading_text: str,
+-    heading_font: Font,
+-    geometry: str,
+-    padding: int = 10,
+-    resizable: tuple[bool, bool] = (True, True),
+-) -> tuple[tk.Toplevel, ttk.Frame]:
+-    win = tk.Toplevel(parent)
+-    win.title(safe_title)
+-    win.wm_title(safe_title)
+-    win.geometry(geometry)
+-    win.resizable(*resizable)
+-
+-    outer = ttk.Frame(win, padding=padding)
+-    outer.pack(fill=tk.BOTH, expand=True)
+-
+-    heading = tk.Label(outer, text=heading_text, anchor="w", font=heading_font)
+-    heading.pack(fill=tk.X, pady=(0, 10))
+-    return win, outer
+-
+-
+-def create_panel_popup(
+-    parent: tk.Misc,
+-    *,
+-    safe_title: str,
+-    heading_text: str,
+-    heading_font: Font,
+-    button_font: Font,
+-    geometry: str,
+-    refresh_label: str,
+-    on_refresh: Callable[[ttk.Frame], None],
+-    padding: int = 10,
+-    resizable: tuple[bool, bool] = (True, True),
+-) -> tuple[tk.Toplevel, ttk.Frame]:
+-    win, outer = create_popup_shell(
+-        parent,
+-        safe_title=safe_title,
+-        heading_text=heading_text,
+-        heading_font=heading_font,
+-        geometry=geometry,
+-        padding=padding,
+-        resizable=resizable,
+-    )
+-
+-    content_frame = ttk.Frame(outer)
+-    content_frame.pack(fill=tk.BOTH, expand=True)
+-    on_refresh(content_frame)
+-
+-    tk.Button(
+-        outer,
+-        text=refresh_label,
+-        font=button_font,
+-        command=lambda: on_refresh(content_frame),
+-    ).pack(pady=(10, 0))
+-    return win, content_frame
+-
+-
+-def create_text_popup(
+-    parent: tk.Misc,
+-    *,
+-    safe_title: str,
+-    heading_text: str,
+-    heading_font: Font,
+-    body_font: Font,
+-    button_font: Font,
+-    geometry: str,
+-    refresh_label: str,
+-    initial_content: str,
+-    on_refresh: Callable[[], str],
+-    padding: int = 10,
+-    resizable: tuple[bool, bool] = (True, True),
+-) -> tuple[tk.Toplevel, tk.Text]:
+-    win, outer = create_popup_shell(
+-        parent,
+-        safe_title=safe_title,
+-        heading_text=heading_text,
+-        heading_font=heading_font,
+-        geometry=geometry,
+-        padding=padding,
+-        resizable=resizable,
+-    )
+-
+-    text = tk.Text(outer, wrap=tk.WORD, font=body_font)
+-    text.pack(fill=tk.BOTH, expand=True)
+-    text.insert("1.0", initial_content)
+-    text.configure(state=tk.DISABLED)
+-
+-    def _refresh() -> None:
+-        payload = on_refresh()
+-        text.configure(state=tk.NORMAL)
+-        text.delete("1.0", tk.END)
+-        text.insert("1.0", payload)
+-        text.configure(state=tk.DISABLED)
+-
+-    tk.Button(
+-        outer,
+-        text=refresh_label,
+-        font=button_font,
+-        command=_refresh,
+-    ).pack(pady=(8, 0))
+-    return win, text
+diff --git a/src/launch.py b/src/launch.py
+deleted file mode 100644
+index a7abf97..0000000
+--- a/src/launch.py
++++ /dev/null
+@@ -1,48 +0,0 @@
+-from __future__ import annotations
+-
+-import os
+-
+-
+-def _apply_runtime_defaults(mode: str) -> None:
+-    runtime_mode = (mode or "desktop").strip().lower()
+-    os.environ["RUNTIME_MODE"] = runtime_mode
+-
+-    if runtime_mode == "desktop":
+-        os.environ.setdefault("DHT11_ENABLED", "0")
+-        os.environ.setdefault("SPEECH_ENABLED", "1")
+-        os.environ.setdefault("WAKEWORD_ENABLED", "0")
+-        os.environ.setdefault("TTS_ENABLED", "1")
+-        return
+-
+-    os.environ.setdefault("DHT11_ENABLED", "1")
+-    os.environ.setdefault("SPEECH_ENABLED", "1")
+-    os.environ.setdefault("WAKEWORD_ENABLED", "1")
+-    os.environ.setdefault("TTS_ENABLED", "1")
+-
+-
+-def run_gui_app() -> None:
+-    try:
+-        from src.gui.app import run_gui
+-    except ModuleNotFoundError as exc:
+-        if exc.name == "tkinter":
+-            print("找不到 tkinter，請先安裝系統套件 python3-tk，再重新執行 --gui。")
+-            return
+-        raise
+-
+-    run_gui()
+-
+-
+-def run_console_app(*, mode: str) -> None:
+-    _apply_runtime_defaults(mode)
+-
+-    from src.true_main import run_console_app as run_console
+-
+-    run_console()
+-
+-
+-def run_desktop_console() -> None:
+-    run_console_app(mode="desktop")
+-
+-
+-def run_hardware_console() -> None:
+-    run_console_app(mode="hardware")
+\ No newline at end of file
+diff --git a/src/main.py b/src/main.py
+index 268f4d3..36e566f 100644
+--- a/src/main.py
++++ b/src/main.py
+@@ -1,10 +1,7 @@
+ import os
+ import sys
+-import argparse
+ from pathlib import Path
+ 
+-from src.launch import run_desktop_console, run_gui_app
+-
+ 
+ PROJECT_ROOT = Path(__file__).resolve().parent.parent
+ if str(PROJECT_ROOT) not in sys.path:
+@@ -12,15 +9,17 @@ if str(PROJECT_ROOT) not in sys.path:
+ 
+ 
+ def main() -> None:
+-    parser = argparse.ArgumentParser(add_help=True)
+-    parser.add_argument("--gui", action="store_true", help="Launch Tkinter desktop GUI")
+-    args = parser.parse_args()
++    # 薄入口：固定桌面模式，核心流程委派到 true_main。
++    os.environ["RUNTIME_MODE"] = "desktop"
++    # Desktop 預設：鍵盤喚醒詞 + 語音命令 + Piper TTS。
++    os.environ.setdefault("DHT11_ENABLED", "0")
++    os.environ.setdefault("SPEECH_ENABLED", "1")
++    os.environ.setdefault("WAKEWORD_ENABLED", "0")
++    os.environ.setdefault("TTS_ENABLED", "1")
+ 
+-    if args.gui:
+-        run_gui_app()
+-        return
++    from src.true_main import main as run_core
+ 
+-    run_desktop_console()
++    run_core()
+ 
+ if __name__ == "__main__":
+     main()
+diff --git a/src/compat/memory_agent.py b/src/memory_agent.py
+similarity index 100%
+rename from src/compat/memory_agent.py
+rename to src/memory_agent.py
+diff --git a/src/runtime.py b/src/runtime.py
+deleted file mode 100644
+index 15bb090..0000000
+--- a/src/runtime.py
++++ /dev/null
+@@ -1,62 +0,0 @@
+-from __future__ import annotations
+-
+-import os
+-from dataclasses import dataclass
+-
+-from src.core.agent import SmartHomeAgent
+-from src.core.memory_agent import MemoryAgent
+-from src.core.state_manager import StateManager
+-from src.devices.device_controller import DeviceController
+-
+-
+-@dataclass(slots=True)
+-class AppRuntime:
+-    mode: str
+-    state: StateManager
+-    memory: MemoryAgent
+-    agent: SmartHomeAgent
+-    device: DeviceController | None = None
+-
+-
+-def _apply_desktop_defaults(state: StateManager) -> None:
+-    state.ambient_temp = int(os.environ.get("DESKTOP_AMBIENT_TEMP", state.ambient_temp or 26))
+-    state.ambient_humidity = int(os.environ.get("DESKTOP_AMBIENT_HUMIDITY", state.ambient_humidity or 60))
+-
+-
+-def _sync_device_from_state(device: DeviceController, state: StateManager) -> None:
+-    device.set_temp(state.temperature)
+-    device.set_fan(state.fan)
+-    for location, light_state in state.light.items():
+-        device.set_led(location, light_state)
+-
+-
+-def build_runtime(
+-    *,
+-    mode: str,
+-    memory_keep: int | None = None,
+-    with_device: bool = False,
+-    setup_device: bool = False,
+-) -> AppRuntime:
+-    if setup_device and not with_device:
+-        raise ValueError("setup_device=True requires with_device=True")
+-
+-    runtime_mode = (mode or "desktop").strip().lower()
+-    memory_kwargs: dict[str, int] = {}
+-    if memory_keep is not None:
+-        memory_kwargs["keep"] = memory_keep
+-
+-    state = StateManager()
+-    memory = MemoryAgent(**memory_kwargs)
+-
+-    if runtime_mode == "desktop":
+-        _apply_desktop_defaults(state)
+-
+-    device: DeviceController | None = None
+-    if with_device:
+-        device = DeviceController()
+-        if setup_device:
+-            device.setup()
+-            _sync_device_from_state(device, state)
+-
+-    agent = SmartHomeAgent(memory=memory, state=state, device_controller=device)
+-    return AppRuntime(mode=runtime_mode, state=state, memory=memory, agent=agent, device=device)
+\ No newline at end of file
+diff --git a/src/services/__init__.py b/src/services/__init__.py
+deleted file mode 100644
+index 177817b..0000000
+--- a/src/services/__init__.py
++++ /dev/null
+@@ -1,25 +0,0 @@
+-from src.services.command_service import CommandResult, execute_text_command
+-from src.services.console_session import ConsoleSessionService, ConsoleSpeech
+-from src.services.gui_command_service import GuiCommandPresentation, execute_gui_text_command, format_reply_for_language
+-from src.services.gui_state_service import (
+-	display_location,
+-	display_state_value,
+-	format_device_state_content,
+-	format_queue_content,
+-	format_queue_item,
+-)
+-
+-__all__ = [
+-	"CommandResult",
+-	"execute_text_command",
+-	"ConsoleSessionService",
+-	"ConsoleSpeech",
+-	"GuiCommandPresentation",
+-	"execute_gui_text_command",
+-	"format_reply_for_language",
+-	"display_location",
+-	"display_state_value",
+-	"format_device_state_content",
+-	"format_queue_content",
+-	"format_queue_item",
+-]
+\ No newline at end of file
+diff --git a/src/services/command_service.py b/src/services/command_service.py
+deleted file mode 100644
+index f3a01e3..0000000
+--- a/src/services/command_service.py
++++ /dev/null
+@@ -1,48 +0,0 @@
+-from __future__ import annotations
+-
+-from dataclasses import dataclass
+-from typing import Any
+-
+-
+-FRIENDLY_ERROR = "抱歉，我現在無法處理，請稍後再試。"
+-
+-
+-@dataclass(slots=True)
+-class CommandResult:
+-    raw_reply: str
+-    error: str | None
+-    actions: list[dict[str, Any]]
+-    state: dict[str, Any] | None
+-    should_standby: bool
+-    should_shutdown: bool
+-    payload: dict[str, Any]
+-
+-
+-def execute_text_command(agent: Any, text: str) -> CommandResult:
+-    try:
+-        payload = agent.handle(text)
+-    except Exception:
+-        payload = {"reply": FRIENDLY_ERROR, "actions_executed": [], "error": "agent_handle_failed"}
+-
+-    raw_reply = str(payload.get("reply") or "")
+-    error = payload.get("error")
+-    actions = payload.get("actions_executed", [])
+-    if not isinstance(actions, list):
+-        actions = []
+-
+-    should_standby = any(isinstance(action, dict) and action.get("type") == "ENTER_STANDBY" for action in actions)
+-    should_shutdown = any(isinstance(action, dict) and action.get("type") == "SHUTDOWN" for action in actions)
+-
+-    state = payload.get("state")
+-    if not isinstance(state, dict):
+-        state = None
+-
+-    return CommandResult(
+-        raw_reply=raw_reply,
+-        error=str(error) if error is not None else None,
+-        actions=actions,
+-        state=state,
+-        should_standby=should_standby,
+-        should_shutdown=should_shutdown,
+-        payload=payload,
+-    )
+\ No newline at end of file
+diff --git a/src/services/console_session.py b/src/services/console_session.py
+deleted file mode 100644
+index 2633bbf..0000000
+--- a/src/services/console_session.py
++++ /dev/null
+@@ -1,333 +0,0 @@
+-from __future__ import annotations
+-
+-import os
+-import time
+-from pathlib import Path
+-from typing import Any, Callable, Optional, Tuple
+-
+-from src.core.state_manager import StateManager
+-from src.devices.device_controller import DeviceController
+-from src.services.command_service import execute_text_command
+-
+-
+-class ConsoleSpeech:
+-    def speech_to_text(self, duration: int = 5) -> str:
+-        return ""
+-
+-    def text_to_speech(self, text: str) -> None:
+-        print(f"[TTS] {text}")
+-
+-
+-def say(speech: Any, text: str, tts_enabled: bool) -> None:
+-    if tts_enabled and hasattr(speech, "text_to_speech"):
+-        try:
+-            speech.text_to_speech(text)
+-            return
+-        except Exception as exc:
+-            print(f"⚠️ TTS 播放失敗，改為文字輸出: {exc}")
+-    print(f"🔊 [回覆]: {text}")
+-
+-
+-def print_dashboard(state: StateManager) -> None:
+-    print("\n" + "=" * 40)
+-    print("🏠 [智慧家庭當前狀態面板]")
+-    print(f"🌡️  當前設定溫度: {state.temperature}°C (環境: {state.ambient_temp}°C)")
+-    print(f"💧 當前環境濕度: {state.ambient_humidity}%")
+-    print(f"💨 風扇狀態: {state.fan}")
+-    print(
+-        "💡 燈光狀態: "
+-        f"客廳({state.light.get('LIVING', 'off')}) | "
+-        f"廚房({state.light.get('KITCHEN', 'off')}) | "
+-        f"客房({state.light.get('GUEST', 'off')})"
+-    )
+-    if state.needs_clarification and state.clarification_message:
+-        print(f"❓ 待澄清: {state.clarification_message}")
+-    print("=" * 40 + "\n")
+-
+-
+-def read_environment(device: DeviceController) -> Tuple[Optional[int], Optional[int]]:
+-    temp: Optional[int] = None
+-    humidity: Optional[int] = None
+-    try:
+-        temp = device.get_temp()
+-    except Exception as exc:
+-        print(f"⚠️ 環境溫度讀取失敗: {exc}")
+-    try:
+-        humidity = device.get_humidity()
+-    except Exception as exc:
+-        print(f"⚠️ 環境濕度讀取失敗: {exc}")
+-    return temp, humidity
+-
+-
+-def is_wake_word(text: str) -> bool:
+-    clean = (text or "").strip().lower()
+-    wake_words = ["hi my pi", "my pi", "my pie", "hi", "開機", "在嗎", "醒來", "嗨"]
+-    return any(word in clean for word in wake_words)
+-
+-
+-def collect_text_input(speech: Any, is_standby: bool, use_speech: bool = True) -> Tuple[str, bool]:
+-    if is_standby:
+-        if use_speech:
+-            print("\n[🟡 待機中] 請說喚醒詞...", flush=True)
+-            try:
+-                text = speech.speech_to_text(duration=2)
+-                if text:
+-                    return text, True
+-            except Exception as exc:
+-                print(f"⚠️ 語音辨識失敗: {exc}")
+-                return input("[🟡 待機中] 請輸入喚醒詞（或 exit 離開）: ").strip(), False
+-        return input("[🟡 待機中] 請輸入喚醒詞（或 exit 離開）: ").strip(), True
+-
+-    if use_speech:
+-        print("\n[🟢 聆聽中] 🗣️ 請說指令...", flush=True)
+-        try:
+-            text = speech.speech_to_text(duration=getattr(speech, "default_duration", 5))
+-            if text:
+-                return text, True
+-        except Exception as exc:
+-            print(f"⚠️ 語音辨識失敗: {exc}")
+-            return input("[🟢 聆聽中] 請輸入指令（或 exit 離開）: ").strip(), False
+-    return input("[🟢 聆聽中] 請輸入指令（或 exit 離開）: ").strip(), True
+-
+-
+-def print_controls() -> None:
+-    print("\n[控制指令]")
+-    print("  /help               顯示控制指令")
+-    print("  /k                  快速切到鍵盤命令輸入")
+-    print("  /v                  快速切到語音命令輸入")
+-    print("  /mode voice         命令輸入改為語音")
+-    print("  /mode keyboard      命令輸入改為鍵盤")
+-    print("  /rec <秒數>         設定語音錄音秒數（1~15）")
+-    print("  /voice              顯示目前語音模型")
+-    print("  /voice <模型路徑>   切換 Piper 語音模型 (.onnx)")
+-    print("  /status             顯示目前輸入模式與錄音秒數")
+-    print("  /standby            立即進入待機")
+-    print("  /exit               結束程式")
+-
+-
+-def detect_capture_status(speech: Any) -> str:
+-    if hasattr(speech, "describe_capture_path"):
+-        try:
+-            return str(speech.describe_capture_path())
+-        except Exception:
+-            return "unknown"
+-    return "keyboard(console)"
+-
+-
+-class ConsoleSessionService:
+-    def __init__(
+-        self,
+-        *,
+-        state: StateManager,
+-        agent: Any,
+-        speech: Any,
+-        device: DeviceController,
+-        speech_enabled: bool,
+-        wakeword_enabled: bool,
+-        tts_enabled: bool,
+-        sensors_enabled: bool,
+-        wait_for_wake_word: Callable[[], bool] | None,
+-        has_wakeword_engine: bool,
+-    ) -> None:
+-        self.state = state
+-        self.agent = agent
+-        self.speech = speech
+-        self.device = device
+-        self.speech_enabled = speech_enabled
+-        self.wakeword_enabled = wakeword_enabled
+-        self.tts_enabled = tts_enabled
+-        self.sensors_enabled = sensors_enabled
+-        self.wait_for_wake_word = wait_for_wake_word
+-        self.has_wakeword_engine = has_wakeword_engine
+-
+-        self.is_standby = True
+-        self.use_command_speech_input = speech_enabled
+-        self.command_record_seconds = max(1, min(15, int(os.environ.get("COMMAND_RECORD_SECONDS", "5"))))
+-        if hasattr(self.speech, "default_duration"):
+-            try:
+-                self.speech.default_duration = self.command_record_seconds
+-            except Exception:
+-                pass
+-
+-    def run(self) -> None:
+-        print("✅ 系統準備就緒！")
+-        say(self.speech, "系統已經啟動，隨時可以叫我。", self.tts_enabled)
+-        print_dashboard(self.state)
+-        print_controls()
+-
+-        active_wakeword_engine = self.has_wakeword_engine and self.wakeword_enabled and self.speech_enabled
+-        capture_status = detect_capture_status(self.speech)
+-        print(
+-            f"[啟動狀態] standby_input=keyboard, "
+-            f"command_input={'voice' if self.use_command_speech_input else 'keyboard'}, "
+-            f"capture={capture_status}, rec={self.command_record_seconds}s"
+-        )
+-
+-        error_count = 0
+-        max_errors = 3
+-
+-        while True:
+-            try:
+-                if self.sensors_enabled:
+-                    self._update_environment()
+-
+-                user_input, active_wakeword_engine = self._collect_input(active_wakeword_engine)
+-                clean_input = (user_input or "").strip()
+-                if not clean_input:
+-                    continue
+-
+-                if self._handle_control_command(clean_input):
+-                    if clean_input.lower() in ("/exit", "/quit"):
+-                        break
+-                    continue
+-
+-                if clean_input.lower() in ["exit", "quit"]:
+-                    say(self.speech, "系統關閉中，再見。", self.tts_enabled)
+-                    break
+-
+-                if self.is_standby:
+-                    if is_wake_word(clean_input):
+-                        self.is_standby = False
+-                        say(self.speech, "我在，請說！", self.tts_enabled)
+-                    continue
+-
+-                if self._handle_agent_turn(clean_input):
+-                    break
+-
+-                error_count = 0
+-
+-            except KeyboardInterrupt:
+-                say(self.speech, "強制中斷，系統關閉中。", self.tts_enabled)
+-                break
+-            except Exception as exc:
+-                error_count += 1
+-                print(f"\n❌ 發生未預期錯誤: {exc}")
+-                if error_count >= max_errors:
+-                    print("❌ 錯誤過多，系統停止。")
+-                    break
+-                time.sleep(1)
+-
+-    def _update_environment(self) -> None:
+-        env_temp, env_hum = read_environment(self.device)
+-        if env_temp is not None:
+-            self.state.ambient_temp = env_temp
+-        if env_hum is not None:
+-            self.state.ambient_humidity = env_hum
+-
+-    def _collect_input(self, active_wakeword_engine: bool) -> tuple[str, bool]:
+-        if self.is_standby and active_wakeword_engine and self.wait_for_wake_word is not None:
+-            print("\n[🟡 待機中] 麥克風喚醒詞監聽中 (HI MY PI)... ", end="", flush=True)
+-            detected = self.wait_for_wake_word()
+-            if detected:
+-                print("[已偵測到喚醒詞]")
+-                return "hi my pi", active_wakeword_engine
+-
+-            active_wakeword_engine = False
+-            print("\n⚠️ 喚醒詞引擎不可用，改用鍵盤輸入模式。")
+-            user_input, _ = collect_text_input(self.speech, is_standby=True, use_speech=False)
+-            return user_input, active_wakeword_engine
+-
+-        if self.is_standby:
+-            user_input, _ = collect_text_input(self.speech, is_standby=True, use_speech=False)
+-            return user_input, active_wakeword_engine
+-
+-        user_input, speech_ok = collect_text_input(
+-            self.speech,
+-            is_standby=self.is_standby,
+-            use_speech=self.use_command_speech_input,
+-        )
+-        if not speech_ok and self.use_command_speech_input:
+-            self.use_command_speech_input = False
+-            print("⚠️ 命令語音辨識失敗，已自動降級為鍵盤輸入模式。")
+-        return user_input, active_wakeword_engine
+-
+-    def _handle_control_command(self, clean_input: str) -> bool:
+-        lower_input = clean_input.lower()
+-        if not lower_input.startswith("/"):
+-            return False
+-
+-        if lower_input == "/help":
+-            print_controls()
+-            return True
+-        if lower_input == "/k":
+-            self.use_command_speech_input = False
+-            print("⌨️ 命令輸入已快速切換為鍵盤模式。")
+-            return True
+-        if lower_input == "/v":
+-            self.use_command_speech_input = True
+-            print("🎙️ 命令輸入已快速切換為語音模式。")
+-            return True
+-        if lower_input in ("/exit", "/quit"):
+-            say(self.speech, "系統關閉中，再見。", self.tts_enabled)
+-            return True
+-        if lower_input == "/voice":
+-            current_voice = os.environ.get("TTS_MODEL_PATH", "(default) data/models/voice.onnx")
+-            print(f"[語音模型] {current_voice}")
+-            return True
+-        if lower_input.startswith("/voice "):
+-            model_path = clean_input.split(maxsplit=1)[1].strip()
+-            if not model_path:
+-                print("⚠️ 用法: /voice /path/to/model.onnx")
+-                return True
+-            path = Path(model_path)
+-            if not path.exists():
+-                print(f"⚠️ 找不到模型檔: {model_path}")
+-                return True
+-            if path.suffix.lower() != ".onnx":
+-                print("⚠️ 模型副檔名需為 .onnx")
+-                return True
+-            os.environ["TTS_MODEL_PATH"] = str(path)
+-            print(f"🗣️ 已切換語音模型: {path}")
+-            return True
+-        if lower_input == "/status":
+-            mode_text = "voice" if self.use_command_speech_input else "keyboard"
+-            capture_status = detect_capture_status(self.speech)
+-            print(f"[狀態] standby={self.is_standby}, command_input={mode_text}, capture={capture_status}, rec={self.command_record_seconds}s")
+-            return True
+-        if lower_input == "/standby":
+-            self.is_standby = True
+-            print("💤 已切換到待機模式。")
+-            return True
+-        if lower_input.startswith("/mode "):
+-            target = lower_input.split(maxsplit=1)[1].strip()
+-            if target == "voice":
+-                self.use_command_speech_input = True
+-                print("🎙️ 命令輸入已切換為語音模式。")
+-            elif target == "keyboard":
+-                self.use_command_speech_input = False
+-                print("⌨️ 命令輸入已切換為鍵盤模式。")
+-            else:
+-                print("⚠️ 用法: /mode voice 或 /mode keyboard")
+-            return True
+-        if lower_input.startswith("/rec "):
+-            raw = lower_input.split(maxsplit=1)[1].strip()
+-            try:
+-                seconds = int(raw)
+-                self.command_record_seconds = max(1, min(15, seconds))
+-                if hasattr(self.speech, "default_duration"):
+-                    self.speech.default_duration = self.command_record_seconds
+-                print(f"⏱️ 命令錄音秒數已設定為 {self.command_record_seconds}s")
+-            except Exception:
+-                print("⚠️ 用法: /rec 3（秒數範圍 1~15）")
+-            return True
+-
+-        print("⚠️ 未知控制指令，輸入 /help 查看可用指令。")
+-        return True
+-
+-    def _handle_agent_turn(self, clean_input: str) -> bool:
+-        print("\n🧠 Agent 思考中...")
+-        result = execute_text_command(self.agent, clean_input)
+-
+-        if result.error:
+-            print(f"⚠️ [系統錯誤碼]: {result.error}")
+-        print(f"🔊 [語音回覆]: {result.raw_reply}")
+-        say(self.speech, result.raw_reply, self.tts_enabled)
+-
+-        if result.should_shutdown:
+-            return True
+-
+-        print_dashboard(self.state)
+-        if result.should_standby:
+-            self.is_standby = True
+-            print("💤 === 系統進入待機模式 ===")
+-        return False
+\ No newline at end of file
+diff --git a/src/services/gui_command_service.py b/src/services/gui_command_service.py
+deleted file mode 100644
+index e84078d..0000000
+--- a/src/services/gui_command_service.py
++++ /dev/null
+@@ -1,82 +0,0 @@
+-from __future__ import annotations
+-
+-import re
+-from dataclasses import dataclass
+-from typing import Any
+-
+-from src.services.command_service import CommandResult, execute_text_command
+-
+-
+-@dataclass(slots=True)
+-class GuiCommandPresentation:
+-    raw_reply: str
+-    formatted_reply: str
+-    error: str | None
+-    should_shutdown: bool
+-    should_standby: bool
+-    should_speak: bool
+-    result: CommandResult
+-
+-
+-def _contains_cjk(text: str) -> bool:
+-    return bool(re.search(r"[\u3400-\u9fff]", text))
+-
+-
+-def _to_english_reply(reply: str) -> str:
+-    direct = {
+-        "請告訴我你想控制的設備或需求。": "Please tell me which device or action you want.",
+-        "好的，我先休息囉，有需要請隨時叫我！": "Okay, entering standby. Wake me when needed.",
+-        "好的，系統關閉中，再見！": "Okay, shutting down. Goodbye!",
+-        "好的，已清除短期記憶。": "Okay, short-term memory has been cleared.",
+-        "抱歉，我現在無法處理，請稍後再試。": "Sorry, I can't process that right now. Please try again later.",
+-    }
+-    if reply in direct:
+-        return direct[reply]
+-
+-    converted = reply
+-    replacements = [
+-        ("好的，", "Okay, "),
+-        ("好的", "Okay"),
+-        ("但有部分裝置沒有成功執行。", "but some devices did not execute successfully."),
+-        ("溫度已設定為", "temperature has been set to"),
+-        ("風扇已開啟", "fan turned on"),
+-        ("風扇已關閉", "fan turned off"),
+-        ("客廳燈已開啟", "living room light turned on"),
+-        ("客廳燈已關閉", "living room light turned off"),
+-        ("廚房燈已開啟", "kitchen light turned on"),
+-        ("廚房燈已關閉", "kitchen light turned off"),
+-        ("客房燈已開啟", "guest room light turned on"),
+-        ("客房燈已關閉", "guest room light turned off"),
+-    ]
+-    for source, target in replacements:
+-        converted = converted.replace(source, target)
+-
+-    if _contains_cjk(converted):
+-        return f"{converted} (Original reply is partially Chinese.)"
+-    return converted
+-
+-
+-def format_reply_for_language(reply: str, language: str) -> str:
+-    if language == "en":
+-        return _to_english_reply(reply)
+-    return reply
+-
+-
+-def build_gui_command_presentation(result: CommandResult, language: str) -> GuiCommandPresentation:
+-    raw_reply = str(result.raw_reply or "")
+-    formatted_reply = format_reply_for_language(raw_reply, language)
+-    should_speak = language == "zh" and bool(raw_reply)
+-    return GuiCommandPresentation(
+-        raw_reply=raw_reply,
+-        formatted_reply=formatted_reply,
+-        error=result.error,
+-        should_shutdown=result.should_shutdown,
+-        should_standby=result.should_standby,
+-        should_speak=should_speak,
+-        result=result,
+-    )
+-
+-
+-def execute_gui_text_command(agent: Any, text: str, language: str) -> GuiCommandPresentation:
+-    result = execute_text_command(agent, text)
+-    return build_gui_command_presentation(result, language)
+\ No newline at end of file
+diff --git a/src/services/gui_state_service.py b/src/services/gui_state_service.py
+deleted file mode 100644
+index f3b9a83..0000000
+--- a/src/services/gui_state_service.py
++++ /dev/null
+@@ -1,71 +0,0 @@
+-from __future__ import annotations
+-
+-from typing import Any, Callable
+-
+-
+-def display_state_value(value: Any, tr: Callable[[str], str], ensure_text: Callable[[Any], str]) -> str:
+-    normalized = ensure_text(value).strip().lower()
+-    if normalized == "on":
+-        return tr("on")
+-    if normalized == "off":
+-        return tr("off")
+-    if not normalized:
+-        return tr("unknown")
+-    return ensure_text(value)
+-
+-
+-def display_location(value: Any, tr: Callable[[str], str], ensure_text: Callable[[Any], str]) -> str:
+-    key = ensure_text(value).strip().upper()
+-    mapping = {
+-        "KITCHEN": tr("kitchen"),
+-        "LIVING": tr("living"),
+-        "GUEST": tr("guest"),
+-    }
+-    return mapping.get(key, ensure_text(value) or tr("unknown"))
+-
+-
+-def format_device_state_content(state: dict[str, Any], tr: Callable[[str], str], ensure_text: Callable[[Any], str]) -> str:
+-    light_state = state.get("light", {}) if isinstance(state.get("light", {}), dict) else {}
+-    light_lines = [
+-        f"- {display_location(location, tr, ensure_text)}: {display_state_value(status, tr, ensure_text)}"
+-        for location, status in light_state.items()
+-    ]
+-    if not light_lines:
+-        light_lines = [f"- {tr('no_data')}"]
+-
+-    lines = [
+-        f"{tr('temperature')}: {state.get('temperature', tr('unknown'))}",
+-        f"{tr('fan')}: {display_state_value(state.get('fan'), tr, ensure_text)}",
+-        f"{tr('ambient_temp')}: {state.get('ambient_temp', tr('unknown'))}",
+-        f"{tr('ambient_humidity')}: {state.get('ambient_humidity', tr('unknown'))}",
+-        "",
+-        f"{tr('light')}:",
+-        *light_lines,
+-    ]
+-    return "\n".join(lines)
+-
+-
+-def format_queue_item(item: dict[str, Any], index: int, tr: Callable[[str], str], ensure_text: Callable[[Any], str]) -> str:
+-    source = item.get("source") or item.get("raw_command") or item.get("command") or tr("unknown")
+-    status = item.get("status") or item.get("state") or tr("unknown")
+-    run_time = item.get("run_at") or item.get("time") or item.get("scheduled_for") or tr("unknown")
+-    device = item.get("device") or item.get("location") or tr("unknown")
+-    action = item.get("action") or item.get("type") or tr("unknown")
+-
+-    lines = [
+-        f"{tr('queue_item')} {index}",
+-        f"{tr('queue_device')}: {display_location(device, tr, ensure_text)}",
+-        f"{tr('queue_action')}: {ensure_text(action)}",
+-        f"{tr('queue_time')}: {ensure_text(run_time)}",
+-        f"{tr('queue_status')}: {ensure_text(status)}",
+-        f"{tr('queue_source')}: {ensure_text(source)}",
+-    ]
+-    return "\n".join(lines)
+-
+-
+-def format_queue_content(queue_items: list[dict[str, Any]], tr: Callable[[str], str], ensure_text: Callable[[Any], str]) -> str:
+-    if not queue_items:
+-        return tr("queue_empty")
+-
+-    formatted = [format_queue_item(item, index, tr, ensure_text) for index, item in enumerate(queue_items, start=1)]
+-    return "\n\n".join(formatted)
+\ No newline at end of file
+diff --git a/src/compat/state_manager.py b/src/state_manager.py
+similarity index 100%
+rename from src/compat/state_manager.py
+rename to src/state_manager.py
+diff --git a/src/true_main.py b/src/true_main.py
+index 1c2c5d7..055e089 100644
+--- a/src/true_main.py
++++ b/src/true_main.py
+@@ -1,7 +1,10 @@
+ import os
+ import sys
++import threading
++import time
+ from pathlib import Path
+-from typing import Any
++from typing import Any, Optional, Tuple
++
+ 
+ RUNTIME_MODE = os.environ.get("RUNTIME_MODE", "hardware").strip().lower()
+ if RUNTIME_MODE == "desktop":
+@@ -24,8 +27,11 @@ try:
+ except Exception:
+     SpeechProcessor = None  # type: ignore[assignment]
+ 
+-from src.runtime import build_runtime
+-from src.services.console_session import ConsoleSessionService, ConsoleSpeech
++from src.core.agent import SmartHomeAgent, _tts_format as _agent_tts_format
++from src.core.memory_agent import MemoryAgent
++from src.core.scheduler import ScheduleManager
++from src.core.state_manager import StateManager
++from src.devices.device_controller import DeviceController
+ 
+ 
+ def _env_flag(name: str, default: bool) -> bool:
+@@ -35,6 +41,55 @@ def _env_flag(name: str, default: bool) -> bool:
+     return value.strip().lower() not in ("0", "false", "off", "no")
+ 
+ 
++class ConsoleSpeech:
++    def speech_to_text(self, duration: int = 5) -> str:
++        return ""
++
++    def text_to_speech(self, text: str) -> None:
++        print(f"[TTS] {text}")
++
++
++def say(speech: Any, text: str, tts_enabled: bool) -> None:
++    if tts_enabled and hasattr(speech, "text_to_speech"):
++        try:
++            speech.text_to_speech(text)
++            return
++        except Exception as exc:
++            print(f"⚠️ TTS 播放失敗，改為文字輸出: {exc}")
++    print(f"🔊 [回覆]: {text}")
++
++
++def print_dashboard(state: StateManager) -> None:
++    print("\n" + "=" * 40)
++    print("🏠 [智慧家庭當前狀態面板]")
++    print(f"🌡️  當前設定溫度: {state.temperature}°C (環境: {state.ambient_temp}°C)")
++    print(f"💧 當前環境濕度: {state.ambient_humidity}%")
++    print(f"💨 風扇狀態: {state.fan}")
++    print(
++        "💡 燈光狀態: "
++        f"客廳({state.light.get('LIVING', 'off')}) | "
++        f"廚房({state.light.get('KITCHEN', 'off')}) | "
++        f"客房({state.light.get('GUEST', 'off')})"
++    )
++    if state.needs_clarification and state.clarification_message:
++        print(f"❓ 待澄清: {state.clarification_message}")
++    print("=" * 40 + "\n")
++
++
++def read_environment(device: DeviceController) -> Tuple[Optional[int], Optional[int]]:
++    temp: Optional[int] = None
++    humidity: Optional[int] = None
++    try:
++        temp = device.get_temp()
++    except Exception as exc:
++        print(f"⚠️ 環境溫度讀取失敗: {exc}")
++    try:
++        humidity = device.get_humidity()
++    except Exception as exc:
++        print(f"⚠️ 環境濕度讀取失敗: {exc}")
++    return temp, humidity
++
++
+ if _env_flag("WAKEWORD_ENABLED", RUNTIME_MODE != "desktop"):
+     try:
+         from src.utils.wait_wakeword import wait_for_wake_word
+@@ -48,7 +103,183 @@ else:
+     HAS_WAKEWORD_ENGINE = False
+ 
+ 
+-def run_console_app() -> None:
++def is_wake_word(text: str) -> bool:
++    clean = (text or "").strip().lower()
++    wake_words = ["hi my pi", "my pi", "my pie", "hi", "開機", "在嗎", "醒來", "嗨"]
++    return any(word in clean for word in wake_words)
++
++
++def collect_text_input(speech: Any, is_standby: bool, use_speech: bool = True) -> Tuple[str, bool]:
++    if is_standby:
++        if use_speech:
++            print("\n[🟡 待機中] 請說喚醒詞...", flush=True)
++            try:
++                text = speech.speech_to_text(duration=2)
++                if text:
++                    return text, True
++            except Exception as exc:
++                print(f"⚠️ 語音辨識失敗: {exc}")
++                return input("[🟡 待機中] 請輸入喚醒詞（或 exit 離開）: "), False
++        return input("[🟡 待機中] 請輸入喚醒詞（或 exit 離開）: "), True
++
++    if use_speech:
++        print("\n[🟢 聆聽中] 🗣️ 請說指令...", flush=True)
++        try:
++            text = speech.speech_to_text(duration=getattr(speech, "default_duration", 5))
++            if text:
++                return text, True
++        except Exception as exc:
++            print(f"⚠️ 語音辨識失敗: {exc}")
++            return input("[🟢 聆聽中] 請輸入指令（或 exit 離開）: "), False
++    return input("[🟢 聆聽中] 請輸入指令（或 exit 離開）: "), True
++
++
++def _schedule_ticker(
++    scheduler: ScheduleManager,
++    device: Any,
++    speech: Any,
++    tts_enabled: bool,
++    stop_event: threading.Event,
++) -> None:
++    """Background thread: checks and fires schedules every 5 seconds.
++    Only sends voice notification on success, no console output."""
++    while not stop_event.is_set():
++        try:
++            for fired in scheduler.tick(device):
++                rule_name = fired["rule"].get("name", "排程")
++                # ✅ 執行成功時才語音通知
++                if fired["success"]:
++                    notification = _agent_tts_format(f"排程通知：{rule_name}執行成功")
++                    say(speech, notification, tts_enabled)
++                    print("\n[🟢 聆聽中] 請輸入指令（或 exit 離開）: ", end="", flush=True)
++        except Exception as exc:
++            print(f"\n⚠️ [排程背景執行錯誤]: {exc}", flush=True)
++        stop_event.wait(5)
++
++
++def print_controls() -> None:
++    print("\n[控制指令]")
++    print("  /help               顯示控制指令")
++    print("  /k                  快速切到鍵盤命令輸入")
++    print("  /v                  快速切到語音命令輸入")
++    print("  /mode voice         命令輸入改為語音")
++    print("  /mode keyboard      命令輸入改為鍵盤")
++    print("  /rec <秒數>         設定語音錄音秒數（1~15，預設 8 秒）")
++    print("  /voice              顯示目前語音模型")
++    print("  /voice <模型路徑>   切換 Piper 語音模型 (.onnx)")
++    print("  /status             顯示目前輸入模式與錄音秒數")
++    print("  /standby            立即進入待機")
++    print("  /exit               結束程式")
++    print("\n[排程指令]")
++    print("  /sched list                        查看所有排程")
++    print("  /sched add <HH:MM> fan on|off      新增風扇排程")
++    print("  /sched add <HH:MM> led <位置> on|off  新增燈光排程（living/kitchen/guest）")
++    print("  /sched add <HH:MM> temp <度數>     新增溫度排程")
++    print("  /sched del <id>                    刪除排程")
++    print("  /sched toggle <id>                 啟用/停用排程")
++
++    
++
++
++def print_schedules(scheduler: ScheduleManager) -> None:
++    rules = scheduler.list_all()
++    print("\n" + "═" * 70)
++    print("📅 [排程列表]")
++    print("═" * 70)
++
++    if not rules:
++        print("  （目前沒有任何排程）")
++    else:
++        # 表格標頭
++        print(f"{'狀態':<4} {'ID':<9} {'時間':<6} {'動作':<25} {'上次觸發':<15} 結果")
++        print("─" * 70)
++
++        for r in rules:
++            status = "✅" if r.get("enabled", True) else "⏸️"
++            rule_id = r["id"]
++            time_str = f"{r['hour']:02d}:{r['minute']:02d}"
++            
++            # 清除 name 中重複的時間（避免 22:00 22:00 ...）
++            name = r.get("name", "")
++            if name.startswith(f"{time_str} "):
++                name = name[len(time_str)+1:].strip()
++            
++            last = r.get("last_triggered") or "從未觸發"
++            result = r.get("last_result") or "-"
++            
++            # 單行顯示，全部對齊
++            print(f"{status:<4} [{rule_id}] {time_str}  {name:<25} {last:<15} {result}")
++
++    print("═" * 70 + "\n")
++
++
++def parse_sched_add(parts: list[str]) -> Optional[Tuple[int, int, list[dict], str]]:
++    """Parse: /sched add HH:MM fan on|off | led <loc> on|off | temp <val>
++    Returns (hour, minute, actions, name) or None on parse failure.
++    """
++    if len(parts) < 4:
++        return None
++    time_str = parts[2]
++    try:
++        hh, mm = time_str.split(":")
++        hour, minute = int(hh), int(mm)
++        if not (0 <= hour <= 23 and 0 <= minute <= 59):
++            return None
++    except Exception:
++        return None
++
++    device = parts[3].lower()
++
++    if device == "fan":
++        if len(parts) < 5:
++            return None
++        state = parts[4].lower()
++        if state not in ("on", "off"):
++            return None
++        actions = [{"type": "FAN", "state": state}]
++        name = f"{hour:02d}:{minute:02d} 風扇{'開' if state == 'on' else '關'}"
++        return hour, minute, actions, name
++
++    if device == "led":
++        if len(parts) < 6:
++            return None
++        loc_map = {"living": "LIVING", "kitchen": "KITCHEN", "guest": "GUEST",
++                   "客廳": "LIVING", "廚房": "KITCHEN", "客房": "GUEST"}
++        loc = loc_map.get(parts[4].lower())
++        if loc is None:
++            return None
++        state = parts[5].lower()
++        if state not in ("on", "off"):
++            return None
++        loc_label = {"LIVING": "客廳", "KITCHEN": "廚房", "GUEST": "客房"}.get(loc, loc)
++        actions = [{"type": "LED", "location": loc, "state": state}]
++        name = f"{hour:02d}:{minute:02d} {loc_label}燈{'開' if state == 'on' else '關'}"
++        return hour, minute, actions, name
++
++    if device == "temp":
++        if len(parts) < 5:
++            return None
++        try:
++            val = int(parts[4])
++        except Exception:
++            return None
++        actions = [{"type": "SET_TEMP", "value": val}]
++        name = f"{hour:02d}:{minute:02d} 溫度設定 {val}°C"
++        return hour, minute, actions, name
++
++    return None
++
++
++def detect_capture_status(speech: Any) -> str:
++    if hasattr(speech, "describe_capture_path"):
++        try:
++            return str(speech.describe_capture_path())
++        except Exception:
++            return "unknown"
++    return "keyboard(console)"
++
++
++def main() -> None:
+     runtime_mode = os.environ.get("RUNTIME_MODE", "hardware").strip().lower()
+     speech_enabled = _env_flag("SPEECH_ENABLED", runtime_mode != "desktop")
+     wakeword_enabled = _env_flag("WAKEWORD_ENABLED", runtime_mode != "desktop")
+@@ -58,8 +289,13 @@ def run_console_app() -> None:
+     print(f"🔧 正在初始化系統... mode={runtime_mode}")
+     print("🖥️ 桌面模式：鍵盤喚醒詞 + 語音命令 + Piper TTS。" if runtime_mode == "desktop" else "🍓 樹莓派模式：使用實體 GPIO 與感測器。")
+ 
+-    runtime = build_runtime(mode=runtime_mode, with_device=True, setup_device=True)
+-    state = runtime.state
++    state = StateManager()
++    memory = MemoryAgent()
++    scheduler = ScheduleManager()
++
++    if runtime_mode == "desktop":
++        state.ambient_temp = int(os.environ.get("DESKTOP_AMBIENT_TEMP", state.ambient_temp or 26))
++        state.ambient_humidity = int(os.environ.get("DESKTOP_AMBIENT_HUMIDITY", state.ambient_humidity or 60))
+ 
+     speech: Any = ConsoleSpeech()
+     if SpeechProcessor is not None and (speech_enabled or tts_enabled):
+@@ -76,25 +312,259 @@ def run_console_app() -> None:
+         wakeword_enabled = False
+         tts_enabled = False
+ 
+-    device = runtime.device
++    device: Optional[DeviceController] = None
++    stop_event = threading.Event()
+ 
+     try:
+-        if device is None:
+-            raise RuntimeError("runtime device is not initialized")
+-        service = ConsoleSessionService(
+-            state=state,
+-            agent=runtime.agent,
+-            speech=speech,
+-            device=device,
+-            speech_enabled=speech_enabled,
+-            wakeword_enabled=wakeword_enabled,
+-            tts_enabled=tts_enabled,
+-            sensors_enabled=sensors_enabled,
+-            wait_for_wake_word=wait_for_wake_word,
+-            has_wakeword_engine=HAS_WAKEWORD_ENGINE,
+-        )
+-        service.run()
++        device = DeviceController()
++        device.setup()
++        device.set_temp(state.temperature)
++        device.set_fan(state.fan)
++        for location, light_state in state.light.items():
++            device.set_led(location, light_state)
++
++        agent = SmartHomeAgent(memory=memory, state=state, device_controller=device, scheduler=scheduler)
++
++        threading.Thread(
++            target=_schedule_ticker,
++            args=(scheduler, device, speech, tts_enabled, stop_event),
++            daemon=True,
++            name="schedule-ticker",
++        ).start()
++
++        print("✅ 系統準備就緒！")
++        say(speech, "系統已經啟動，隨時可以叫我。", tts_enabled)
++        print_dashboard(state)
++        print_controls()
++
++        is_standby = True
++        has_wakeword_engine = HAS_WAKEWORD_ENGINE and wakeword_enabled and speech_enabled
++        use_command_speech_input = speech_enabled
++        command_record_seconds = int(os.environ.get("COMMAND_RECORD_SECONDS", "8"))
++        command_record_seconds = max(1, min(15, command_record_seconds))
++        if hasattr(speech, "default_duration"):
++            try:
++                speech.default_duration = command_record_seconds
++            except Exception:
++                pass
++
++        capture_status = detect_capture_status(speech)
++        print(f"[啟動狀態] standby_input=keyboard, command_input={'voice' if use_command_speech_input else 'keyboard'}, capture={capture_status}, rec={command_record_seconds}s")
++
++        error_count = 0
++        max_errors = 3
++
++        while True:
++            try:
++                if sensors_enabled:
++                    env_temp, env_hum = read_environment(device)
++                    if env_temp is not None:
++                        state.ambient_temp = env_temp
++                    if env_hum is not None:
++                        state.ambient_humidity = env_hum
++
++                if is_standby and has_wakeword_engine and wait_for_wake_word is not None:
++                    print("\n[🟡 待機中] 麥克風喚醒詞監聽中 (HI MY PI)... ", end="", flush=True)
++                    detected = wait_for_wake_word()
++                    if detected:
++                        print("[已偵測到喚醒詞]")
++                        user_input = "hi my pi"
++                    else:
++                        has_wakeword_engine = False
++                        print("\n⚠️ 喚醒詞引擎不可用，改用鍵盤輸入模式。")
++                        user_input, _ = collect_text_input(speech, is_standby=True, use_speech=False)
++                elif is_standby:
++                    user_input, _ = collect_text_input(speech, is_standby=True, use_speech=False)
++                else:
++                    user_input, speech_ok = collect_text_input(
++                        speech,
++                        is_standby=is_standby,
++                        use_speech=use_command_speech_input,
++                    )
++                    if not speech_ok and use_command_speech_input:
++                        use_command_speech_input = False
++                        print("⚠️ 命令語音辨識失敗，已自動降級為鍵盤輸入模式。")
++
++                clean_input = (user_input or "").strip()
++                if not clean_input:
++                    continue
++
++                lower_input = clean_input.lower()
++                if lower_input.startswith("/"):
++                    if lower_input == "/help":
++                        print_controls()
++                        continue
++                    if lower_input == "/k":
++                        use_command_speech_input = False
++                        print("⌨️ 命令輸入已快速切換為鍵盤模式。")
++                        continue
++                    if lower_input == "/v":
++                        use_command_speech_input = True
++                        print("🎙️ 命令輸入已快速切換為語音模式。")
++                        continue
++                    if lower_input in ("/exit", "/quit"):
++                        say(speech, "系統關閉中，再見。", tts_enabled)
++                        break
++                    if lower_input == "/voice":
++                        current_voice = os.environ.get("TTS_MODEL_PATH", "(default) data/models/voice.onnx")
++                        print(f"[語音模型] {current_voice}")
++                        continue
++                    if lower_input.startswith("/voice "):
++                        model_path = clean_input.split(maxsplit=1)[1].strip()
++                        if not model_path:
++                            print("⚠️ 用法: /voice /path/to/model.onnx")
++                            continue
++                        path = Path(model_path)
++                        if not path.exists():
++                            print(f"⚠️ 找不到模型檔: {model_path}")
++                            continue
++                        if path.suffix.lower() != ".onnx":
++                            print("⚠️ 模型副檔名需為 .onnx")
++                            continue
++                        os.environ["TTS_MODEL_PATH"] = str(path)
++                        print(f"🗣️ 已切換語音模型: {path}")
++                        continue
++                    if lower_input == "/status":
++                        mode_text = "voice" if use_command_speech_input else "keyboard"
++                        capture_status = detect_capture_status(speech)
++                        print(f"[狀態] standby={is_standby}, command_input={mode_text}, capture={capture_status}, rec={command_record_seconds}s")
++                        continue
++                    if lower_input == "/standby":
++                        is_standby = True
++                        print("💤 已切換到待機模式。")
++                        continue
++                    if lower_input.startswith("/mode "):
++                        target = lower_input.split(maxsplit=1)[1].strip()
++                        if target == "voice":
++                            use_command_speech_input = True
++                            print("🎙️ 命令輸入已切換為語音模式。")
++                        elif target == "keyboard":
++                            use_command_speech_input = False
++                            print("⌨️ 命令輸入已切換為鍵盤模式。")
++                        else:
++                            print("⚠️ 用法: /mode voice 或 /mode keyboard")
++                        continue
++                    if lower_input.startswith("/rec "):
++                        raw = lower_input.split(maxsplit=1)[1].strip()
++                        try:
++                            seconds = int(raw)
++                            command_record_seconds = max(1, min(15, seconds))
++                            if hasattr(speech, "default_duration"):
++                                speech.default_duration = command_record_seconds
++                            print(f"⏱️ 命令錄音秒數已設定為 {command_record_seconds}s")
++                        except Exception:
++                            print("⚠️ 用法: /rec 3（秒數範圍 1~15）")
++                        continue
++                    if lower_input.startswith("/sched"):
++                        parts = clean_input.split()
++                        sub = parts[1].lower() if len(parts) > 1 else ""
++
++                        if sub == "list":
++                            print_schedules(scheduler)
++                        elif sub == "add":
++                            parsed = parse_sched_add(parts)
++                            if parsed is None:
++                                print("⚠️ 用法範例:")
++                                print("  /sched add 22:00 fan on")
++                                print("  /sched add 07:00 led living on")
++                                print("  /sched add 18:00 temp 26")
++                            else:
++                                hour, minute, actions, name = parsed
++                                rule = scheduler.add(hour, minute, actions, name)
++                                print(f"✅ 已新增排程 [{rule['id']}]: {name}")
++                        elif sub == "del":
++                            if len(parts) < 3:
++                                print("⚠️ 用法: /sched del <id>")
++                            elif scheduler.delete(parts[2]):
++                                print(f"✅ 已刪除排程 {parts[2]}")
++                            else:
++                                print(f"⚠️ 找不到排程 {parts[2]}")
++                        elif sub == "toggle":
++                            if len(parts) < 3:
++                                print("⚠️ 用法: /sched toggle <id>")
++                            else:
++                                result = scheduler.toggle(parts[2])
++                                if result is None:
++                                    print(f"⚠️ 找不到排程 {parts[2]}")
++                                else:
++                                    status = "啟用" if result else "停用"
++                                    print(f"✅ 排程 {parts[2]} 已{status}")
++                        else:
++                            print("⚠️ 用法: /sched list|add|del|toggle")
++                        continue
++
++                    print("⚠️ 未知控制指令，輸入 /help 查看可用指令。")
++                    continue
++
++                if clean_input.lower() in ["exit", "quit"]:
++                    say(speech, "系統關閉中，再見。", tts_enabled)
++                    break
++
++                if is_standby:
++                    if is_wake_word(clean_input):
++                        is_standby = False
++                        say(speech, "我在，請說！", tts_enabled)
++                    continue
++
++                print("\n🧠 Agent 思考中...")
++                result = agent.handle(clean_input)
++                reply = str(result.get("reply") or "")
++                error = result.get("error")
++                actions = result.get("actions_executed", [])
++
++                if error:
++                    print(f"⚠️ [系統錯誤碼]: {error}")
++                say(speech, reply, tts_enabled)
++
++                # 如果需要澄清（unclear），進入澄清模式
++                if state.needs_clarification and state.clarification_message:
++                    print(f"\n❓ 系統需要澄清，等待您的回答...", flush=True)
++                    # 提示用戶進行澄清回答
++                    while state.needs_clarification:
++                        clarify_input, _ = collect_text_input(
++                            speech,
++                            is_standby=False,
++                            use_speech=use_command_speech_input,
++                        )
++                        clarify_input = (clarify_input or "").strip()
++                        if not clarify_input:
++                            continue
++                        
++                        # 重新使用澄清信息作為上下文
++                        print("🧠 Agent 思考中...")
++                        clarify_result = agent.handle(clarify_input)
++                        clarify_reply = str(clarify_result.get("reply") or "")
++                        clarify_actions = clarify_result.get("actions_executed", [])
++                        
++                        say(speech, clarify_reply, tts_enabled)
++                        actions.extend(clarify_actions)
++                        # 澄清循環結束
++                        break
++
++                should_standby = any(isinstance(action, dict) and action.get("type") == "ENTER_STANDBY" for action in actions)
++                should_shutdown = any(isinstance(action, dict) and action.get("type") == "SHUTDOWN" for action in actions)
++                if should_shutdown:
++                    break
++
++                print_dashboard(state)
++                if should_standby:
++                    is_standby = True
++                    print("💤 === 系統進入待機模式 ===")
++
++                error_count = 0
++
++            except KeyboardInterrupt:
++                say(speech, "強制中斷，系統關閉中。", tts_enabled)
++                break
++            except Exception as exc:
++                error_count += 1
++                print(f"\n❌ 發生未預期錯誤: {exc}")
++                if error_count >= max_errors:
++                    print("❌ 錯誤過多，系統停止。")
++                    break
++                time.sleep(1)
+     finally:
++        stop_event.set()
+         if device is not None:
+             try:
+                 device.cleanup()
+@@ -102,9 +572,5 @@ def run_console_app() -> None:
+                 print(f"⚠️ 清理硬體時發生錯誤: {exc}")
+ 
+ 
+-def main() -> None:
+-    run_console_app()
+-
+-
+ if __name__ == "__main__":
+     main()

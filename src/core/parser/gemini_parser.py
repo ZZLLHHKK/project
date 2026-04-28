@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from datetime import datetime
 from typing import Any
 
 import src.utils.config as config
@@ -10,6 +11,7 @@ import src.utils.config as config
 _FENCE_RE_1 = re.compile(r"^```(?:json)?\s*", re.IGNORECASE)
 _FENCE_RE_2 = re.compile(r"\s*```$", re.IGNORECASE)
 _FRIENDLY_ERROR = "抱歉，我現在無法處理，請稍後再試。"
+_FRIENDLY_ERROR_EN = "Sorry, I'm unable to process that right now. Please try again later."
 
 
 def _strip_code_fences(text: str) -> str:
@@ -40,7 +42,7 @@ def _get_client() -> Any:
 class GeminiParser:
     """Build prompt, call Gemini, and parse structured response."""
 
-    def _build_prompt(self, user_input: str, state: Any, memory_agent: Any) -> str:
+    def _build_prompt(self, user_input: str, state: Any, memory_agent: Any, lang: str = "zh") -> str:
         current_state = state.get_state() if hasattr(state, "get_state") else {}
         recent_context = memory_agent.get_recent_context(limit=5)
         rules = memory_agent.load_rules()
@@ -56,26 +58,47 @@ class GeminiParser:
         light = current_state.get("light", {})
         ambient_temp = current_state.get("ambient_temp")
         ambient_humidity = current_state.get("ambient_humidity")
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        reply_lang_instruction = "English" if lang == "en" else "Traditional Chinese"
 
         return f"""
 You are a smart-home command parser.
 Output JSON only.
 
 Return exactly one JSON object with keys:
-- reply: Traditional Chinese response string
-- intent: one of [\"command\", \"query\", \"unclear\", \"error\"]
+- reply: response string in {reply_lang_instruction}
+- intent: one of ["command", "query", "unclear", "error"]
 - actions: array of action objects
 
-Action schema:
+Device action schema (execute immediately):
 - {{"type": "SET_TEMP", "value": 26}}
 - {{"type": "FAN", "state": "on"}}
 - {{"type": "LED", "location": "KITCHEN", "state": "off"}}
 
+Schedule action schema (use when user specifies a future or recurring time):
+- {{"type": "SCHEDULE_ADD", "hour": 22, "minute": 0, "name": "22:00 fan on", "actions": [{{"type": "FAN", "state": "on"}}]}}
+  Optional date fields for one-time schedules: "year": 2026, "month": 5, "day": 1, "recurrence": "once"
+  For recurring schedules: "recurrence": "daily" or "weekly" or "monthly"
+- {{"type": "SCHEDULE_LIST"}}
+- {{"type": "SCHEDULE_LIST_DATE", "month": 5, "day": 1}}
+- {{"type": "SCHEDULE_LIST_DATE", "month": 5, "day": 1, "year": 2026}}
+- {{"type": "SCHEDULE_DELETE", "id": "abc12345"}}
+- {{"type": "SCHEDULE_TOGGLE", "id": "abc12345"}}
+
 Rules:
-1. If the input is a question, reply directly and keep actions empty.
-2. If the command is ambiguous, set intent to "unclear", ask a clarification question, and keep actions empty.
-3. Temperature must stay within {int(config.MIN_TEMP)} to {int(config.MAX_TEMP)} Celsius.
-4. Reply must never be empty.
+1. If the user specifies a time (e.g. "下午4點", "8點", "22:00"), prefer SCHEDULE_ADD over immediate device action.
+2. If the user says "明天", "後天", or a specific date like "5月1號", include year/month/day and recurrence="once".
+3. If the user says "每天", recurrence should be "daily".
+4. If user asks schedules on a date, return SCHEDULE_LIST_DATE.
+5. If scheduled time is ambiguous (like "8點" without AM/PM), set intent="unclear" and ask clarification.
+6. If the input is a question, reply directly and keep actions empty.
+7. If the command is ambiguous (non-schedule), set intent to "unclear", ask a clarification question, and keep actions empty.
+8. Temperature must stay within {int(config.MIN_TEMP)} to {int(config.MAX_TEMP)} Celsius.
+9. Reply must never be empty.
+10. The "reply" field must be written in {reply_lang_instruction}.
+
+Current date and time:
+{now}
 
 Current state:
 - temperature: {current_state.get('temperature', current_state.get('setpoint_temp', 25))}
@@ -118,11 +141,12 @@ User input:
         reply = str(payload.get("reply") or "好的，已為您處理。")
         return {"reply": reply, "intent": intent, "actions": cleaned_actions}
 
-    def parse(self, user_input: str, state: Any, memory_agent: Any) -> dict[str, Any]:
+    def parse(self, user_input: str, state: Any, memory_agent: Any, lang: str = "zh") -> dict[str, Any]:
         if not (user_input or "").strip():
-            return {"reply": "請告訴我你想做什麼。", "intent": "error", "actions": []}
+            empty_reply = "Please tell me what you'd like to do." if lang == "en" else "請告訴我你想做什麼。"
+            return {"reply": empty_reply, "intent": "error", "actions": []}
 
-        prompt = self._build_prompt(user_input, state, memory_agent)
+        prompt = self._build_prompt(user_input, state, memory_agent, lang)
         try:
             client = _get_client()
             response = client.models.generate_content(
@@ -131,16 +155,17 @@ User input:
             )
             return self._parse_response(response.text or "")
         except Exception:
-            return {"reply": _FRIENDLY_ERROR, "intent": "error", "actions": []}
+            fallback = _FRIENDLY_ERROR_EN if lang == "en" else _FRIENDLY_ERROR
+            return {"reply": fallback, "intent": "error", "actions": []}
 
 
 DEFAULT_GEMINI = GeminiParser()
 
 
-def parse_with_gemini(user_input: str, state: Any, memory_agent: Any) -> dict[str, Any]:
-    return DEFAULT_GEMINI.parse(user_input, state, memory_agent)
+def parse_with_gemini(user_input: str, state: Any, memory_agent: Any, lang: str = "zh") -> dict[str, Any]:
+    return DEFAULT_GEMINI.parse(user_input, state, memory_agent, lang)
 
 
-def parse(user_input: str, state: Any, memory_agent: Any) -> dict[str, Any]:
-    return parse_with_gemini(user_input, state, memory_agent)
+def parse(user_input: str, state: Any, memory_agent: Any, lang: str = "zh") -> dict[str, Any]:
+    return parse_with_gemini(user_input, state, memory_agent, lang)
 

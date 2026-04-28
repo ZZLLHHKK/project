@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import os
+import threading
 import time
 from pathlib import Path
 from typing import Any, Callable, Optional, Tuple
 
+from src.core.scheduler import ScheduleManager
 from src.core.state_manager import StateManager
 from src.devices.device_controller import DeviceController
 from src.services.command_service import execute_text_command
@@ -103,6 +105,120 @@ def print_controls() -> None:
     print("  /status             顯示目前輸入模式與錄音秒數")
     print("  /standby            立即進入待機")
     print("  /exit               結束程式")
+    print("\n[排程指令]")
+    print("  /sched list                        查看所有排程")
+    print("  /sched add <HH:MM> fan on|off      新增風扇排程")
+    print("  /sched add <HH:MM> led <位置> on|off  新增燈光排程（living/kitchen/guest）")
+    print("  /sched add <HH:MM> temp <度數>     新增溫度排程")
+    print("  /sched del <id>                    刪除排程")
+    print("  /sched toggle <id>                 啟用/停用排程")
+
+
+def print_schedules(scheduler: ScheduleManager) -> None:
+    rules = scheduler.list_all()
+    print("\n" + "═" * 70)
+    print("📅 [排程列表]")
+    print("═" * 70)
+
+    if not rules:
+        print("  （目前沒有任何排程）")
+    else:
+        print(f"{'狀態':<4} {'ID':<9} {'時間':<6} {'動作':<25} {'上次觸發':<15} 結果")
+        print("─" * 70)
+
+        for r in rules:
+            status = "✅" if r.get("enabled", True) else "⏸️"
+            rule_id = r["id"]
+            time_str = f"{r['hour']:02d}:{r['minute']:02d}"
+
+            name = r.get("name", "")
+            if isinstance(name, str) and name.startswith(f"{time_str} "):
+                name = name[len(time_str) + 1 :].strip()
+
+            last = r.get("last_triggered") or "從未觸發"
+            result = r.get("last_result") or "-"
+            print(f"{status:<4} [{rule_id}] {time_str}  {name:<25} {last:<15} {result}")
+
+    print("═" * 70 + "\n")
+
+
+def parse_sched_add(parts: list[str]) -> Optional[Tuple[int, int, list[dict[str, Any]], str]]:
+    if len(parts) < 4:
+        return None
+    time_str = parts[2]
+    try:
+        hh, mm = time_str.split(":")
+        hour, minute = int(hh), int(mm)
+        if not (0 <= hour <= 23 and 0 <= minute <= 59):
+            return None
+    except Exception:
+        return None
+
+    device = parts[3].lower()
+
+    if device == "fan":
+        if len(parts) < 5:
+            return None
+        state = parts[4].lower()
+        if state not in ("on", "off"):
+            return None
+        actions = [{"type": "FAN", "state": state}]
+        name = f"{hour:02d}:{minute:02d} 風扇{'開' if state == 'on' else '關'}"
+        return hour, minute, actions, name
+
+    if device == "led":
+        if len(parts) < 6:
+            return None
+        loc_map = {
+            "living": "LIVING",
+            "kitchen": "KITCHEN",
+            "guest": "GUEST",
+            "客廳": "LIVING",
+            "廚房": "KITCHEN",
+            "客房": "GUEST",
+        }
+        loc = loc_map.get(parts[4].lower())
+        if loc is None:
+            return None
+        state = parts[5].lower()
+        if state not in ("on", "off"):
+            return None
+        loc_label = {"LIVING": "客廳", "KITCHEN": "廚房", "GUEST": "客房"}.get(loc, loc)
+        actions = [{"type": "LED", "location": loc, "state": state}]
+        name = f"{hour:02d}:{minute:02d} {loc_label}燈{'開' if state == 'on' else '關'}"
+        return hour, minute, actions, name
+
+    if device == "temp":
+        if len(parts) < 5:
+            return None
+        try:
+            val = int(parts[4])
+        except Exception:
+            return None
+        actions = [{"type": "SET_TEMP", "value": val}]
+        name = f"{hour:02d}:{minute:02d} 溫度設定 {val}°C"
+        return hour, minute, actions, name
+
+    return None
+
+
+def _schedule_ticker(
+    scheduler: ScheduleManager,
+    device: Any,
+    speech: Any,
+    tts_enabled: bool,
+    stop_event: threading.Event,
+) -> None:
+    while not stop_event.is_set():
+        try:
+            for fired in scheduler.tick(device):
+                rule_name = fired["rule"].get("name", "排程")
+                ok = "✅" if fired["success"] else "⚠️"
+                print(f"\n{ok} [排程觸發] {rule_name} — {fired['result']}", flush=True)
+                say(speech, f"排程執行：{rule_name}", tts_enabled)
+        except Exception as exc:
+            print(f"\n⚠️ [排程背景執行錯誤]: {exc}", flush=True)
+        stop_event.wait(50)
 
 
 def detect_capture_status(speech: Any) -> str:
@@ -128,6 +244,7 @@ class ConsoleSessionService:
         sensors_enabled: bool,
         wait_for_wake_word: Callable[[], bool] | None,
         has_wakeword_engine: bool,
+        scheduler: ScheduleManager | None = None,
     ) -> None:
         self.state = state
         self.agent = agent
@@ -139,6 +256,9 @@ class ConsoleSessionService:
         self.sensors_enabled = sensors_enabled
         self.wait_for_wake_word = wait_for_wake_word
         self.has_wakeword_engine = has_wakeword_engine
+        self.scheduler = scheduler
+        self._schedule_stop_event = threading.Event()
+        self._schedule_thread: threading.Thread | None = None
 
         self.is_standby = True
         self.use_command_speech_input = speech_enabled
@@ -166,46 +286,58 @@ class ConsoleSessionService:
         error_count = 0
         max_errors = 3
 
-        while True:
-            try:
-                if self.sensors_enabled:
-                    self._update_environment()
+        if self.scheduler is not None:
+            self._schedule_thread = threading.Thread(
+                target=_schedule_ticker,
+                args=(self.scheduler, self.device, self.speech, self.tts_enabled, self._schedule_stop_event),
+                daemon=True,
+                name="schedule-ticker",
+            )
+            self._schedule_thread.start()
 
-                user_input, active_wakeword_engine = self._collect_input(active_wakeword_engine)
-                clean_input = (user_input or "").strip()
-                if not clean_input:
-                    continue
+        try:
+            while True:
+                try:
+                    if self.sensors_enabled:
+                        self._update_environment()
 
-                if self._handle_control_command(clean_input):
-                    if clean_input.lower() in ("/exit", "/quit"):
+                    user_input, active_wakeword_engine = self._collect_input(active_wakeword_engine)
+                    clean_input = (user_input or "").strip()
+                    if not clean_input:
+                        continue
+
+                    if self._handle_control_command(clean_input):
+                        if clean_input.lower() in ("/exit", "/quit"):
+                            break
+                        continue
+
+                    if clean_input.lower() in ["exit", "quit"]:
+                        say(self.speech, "系統關閉中，再見。", self.tts_enabled)
                         break
-                    continue
 
-                if clean_input.lower() in ["exit", "quit"]:
-                    say(self.speech, "系統關閉中，再見。", self.tts_enabled)
+                    if self.is_standby:
+                        if is_wake_word(clean_input):
+                            self.is_standby = False
+                            say(self.speech, "我在，請說！", self.tts_enabled)
+                        continue
+
+                    if self._handle_agent_turn(clean_input):
+                        break
+
+                    error_count = 0
+
+                except KeyboardInterrupt:
+                    say(self.speech, "強制中斷，系統關閉中。", self.tts_enabled)
                     break
-
-                if self.is_standby:
-                    if is_wake_word(clean_input):
-                        self.is_standby = False
-                        say(self.speech, "我在，請說！", self.tts_enabled)
-                    continue
-
-                if self._handle_agent_turn(clean_input):
-                    break
-
-                error_count = 0
-
-            except KeyboardInterrupt:
-                say(self.speech, "強制中斷，系統關閉中。", self.tts_enabled)
-                break
-            except Exception as exc:
-                error_count += 1
-                print(f"\n❌ 發生未預期錯誤: {exc}")
-                if error_count >= max_errors:
-                    print("❌ 錯誤過多，系統停止。")
-                    break
-                time.sleep(1)
+                except Exception as exc:
+                    error_count += 1
+                    print(f"\n❌ 發生未預期錯誤: {exc}")
+                    if error_count >= max_errors:
+                        print("❌ 錯誤過多，系統停止。")
+                        break
+                    time.sleep(1)
+        finally:
+            self._schedule_stop_event.set()
 
     def _update_environment(self) -> None:
         env_temp, env_hum = read_environment(self.device)
@@ -309,6 +441,58 @@ class ConsoleSessionService:
                 print(f"⏱️ 命令錄音秒數已設定為 {self.command_record_seconds}s")
             except Exception:
                 print("⚠️ 用法: /rec 3（秒數範圍 1~15）")
+            return True
+
+        if lower_input.startswith("/sched"):
+            if self.scheduler is None:
+                print("⚠️ Scheduler 尚未啟用。")
+                return True
+            parts = clean_input.split()
+            sub = parts[1].lower() if len(parts) > 1 else ""
+
+            if sub == "list":
+                print_schedules(self.scheduler)
+                return True
+
+            if sub == "add":
+                parsed = parse_sched_add(parts)
+                if parsed is None:
+                    print("⚠️ 用法範例:")
+                    print("  /sched add 22:00 fan on")
+                    print("  /sched add 07:00 led living on")
+                    print("  /sched add 18:00 temp 26")
+                    return True
+                hour, minute, actions, name = parsed
+                rule = self.scheduler.add(hour, minute, actions, name, recurrence="daily")
+                if rule is None:
+                    print("⚠️ 排程新增失敗（可能衝突或達上限）。")
+                    return True
+                print(f"✅ 已新增排程 [{rule['id']}]: {name}")
+                return True
+
+            if sub == "del":
+                if len(parts) < 3:
+                    print("⚠️ 用法: /sched del <id>")
+                    return True
+                if self.scheduler.delete(parts[2]):
+                    print(f"✅ 已刪除排程 {parts[2]}")
+                else:
+                    print(f"⚠️ 找不到排程 {parts[2]}")
+                return True
+
+            if sub == "toggle":
+                if len(parts) < 3:
+                    print("⚠️ 用法: /sched toggle <id>")
+                    return True
+                result = self.scheduler.toggle(parts[2])
+                if result is None:
+                    print(f"⚠️ 找不到排程 {parts[2]}")
+                else:
+                    status = "啟用" if result else "停用"
+                    print(f"✅ 排程 {parts[2]} 已{status}")
+                return True
+
+            print("⚠️ 用法: /sched list|add|del|toggle")
             return True
 
         print("⚠️ 未知控制指令，輸入 /help 查看可用指令。")

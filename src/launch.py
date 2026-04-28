@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 
 
 def _apply_runtime_defaults(mode: str) -> None:
@@ -21,6 +22,17 @@ def _apply_runtime_defaults(mode: str) -> None:
 
 
 def run_gui_app() -> None:
+    # Tkinter relies on XIM/IME env vars on Linux; set sane defaults if missing.
+    if os.name == "posix" and not os.environ.get("XMODIFIERS"):
+        if shutil.which("fcitx5-remote") or shutil.which("fcitx-remote"):
+            os.environ.setdefault("XMODIFIERS", "@im=fcitx")
+            os.environ.setdefault("GTK_IM_MODULE", "fcitx")
+            os.environ.setdefault("QT_IM_MODULE", "fcitx")
+        elif shutil.which("ibus-daemon"):
+            os.environ.setdefault("XMODIFIERS", "@im=ibus")
+            os.environ.setdefault("GTK_IM_MODULE", "ibus")
+            os.environ.setdefault("QT_IM_MODULE", "ibus")
+
     try:
         from src.gui.app import run_gui
     except ModuleNotFoundError as exc:

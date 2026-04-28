@@ -12,15 +12,31 @@ LEARN_PATTERNS = [
     re.compile(r"^\s*如果我說\s*(.+?)\s*[，,]?\s*(?:請|就)\s*(.+?)\s*$"),
 ]
 
-TEMP_KEYWORDS = ("溫度", "溫控", "冷氣", "空調", "度", "℃", "調到", "設定")
+TEMP_KEYWORDS = (
+    "溫度",
+    "溫控",
+    "冷氣",
+    "空調",
+    "度",
+    "℃",
+    "調到",
+    "設定",
+    "temperature",
+    "degrees",
+    "ac",
+    "air conditioner",
+    "set temp",
+    "set temperature",
+    "thermostat",
+)
 NUM_RE = re.compile(r"(-?\d+(?:\.\d+)?)\s*(?:度|°|c|℃)?", re.IGNORECASE)
 
-KW_ON = ("開", "打開", "開啟", "on", "turn on")
-KW_OFF = ("關", "關掉", "關閉", "off", "turn off")
+KW_ON = ("開", "打開", "開啟", "on", "turn on", "open", "start")
+KW_OFF = ("關", "關掉", "關閉", "off", "turn off", "close", "stop")
 LOC_MAP = {
     config.LOC_KITCHEN: ("廚房", "kitchen"),
-    config.LOC_LIVING: ("客廳", "living"),
-    config.LOC_GUEST: ("客房", "guest"),
+    config.LOC_LIVING: ("客廳", "living", "living room"),
+    config.LOC_GUEST: ("客房", "guest", "guest room"),
 }
 
 
@@ -59,7 +75,8 @@ class FastPathParser:
         return text
 
     def _parse_temperature(self, text: str) -> Optional[list[dict[str, Any]]]:
-        if not any(keyword in text for keyword in TEMP_KEYWORDS):
+        lowered = text.lower()
+        if not any(keyword in lowered for keyword in TEMP_KEYWORDS):
             return None
         for raw in NUM_RE.findall(text):
             try:
@@ -92,7 +109,7 @@ class FastPathParser:
 
     def _parse_lights(self, text: str) -> Optional[list[dict[str, Any]]]:
         lowered = text.lower()
-        has_light_word = "燈" in text or "light" in lowered or "lamp" in lowered
+        has_light_word = "燈" in text or "light" in lowered or "lights" in lowered or "lamp" in lowered
 
         results: list[dict[str, Any]] = []
         for location, aliases in LOC_MAP.items():

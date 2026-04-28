@@ -77,6 +77,7 @@ def run_console_app() -> None:
         tts_enabled = False
 
     device = runtime.device
+    scheduler = getattr(runtime.agent, "scheduler", None)
 
     try:
         if device is None:
@@ -92,6 +93,7 @@ def run_console_app() -> None:
             sensors_enabled=sensors_enabled,
             wait_for_wake_word=wait_for_wake_word,
             has_wakeword_engine=HAS_WAKEWORD_ENGINE,
+            scheduler=scheduler,
         )
         service.run()
     finally:
