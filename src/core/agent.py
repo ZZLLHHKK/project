@@ -40,7 +40,7 @@ class SmartHomeAgent:
         self.gemini = gemini_parser or GeminiParser()
         self.device_controller = device_controller
         self.scheduler = scheduler or ScheduleManager()
-        self._sched_fastpath = ScheduleFastPathParser()
+        self.schedule_parser = ScheduleFastPathParser()
 
     def _friendly_fastpath_reply(self, actions: list[dict[str, Any]], lang: str = "zh") -> str:
         labels_zh = {"KITCHEN": "廚房", "LIVING": "客廳", "GUEST": "客房"}
@@ -320,30 +320,88 @@ class SmartHomeAgent:
         clear_zh = ("清除記憶", "重置記憶", "清記憶")
         clear_en = ("clear memory", "reset memory", "forget everything", "clear history")
 
-        if any(keyword in clean_input for keyword in standby_zh) or any(keyword in lower_input for keyword in standby_en):
-            reply = _t(lang, "好的，我先休息囉，有需要請隨時叫我！", "Alright, I'll rest now. Just call me anytime!")
-            self.memory.add_interaction(clean_input, reply)
-            return self._build_result(reply, [{"type": "ENTER_STANDBY", "success": True}], None)
-
-        if any(keyword in clean_input for keyword in shutdown_zh) or any(keyword in lower_input for keyword in shutdown_en):
-            reply = _t(lang, "好的，系統關閉中，再見！", "Shutting down. Goodbye!")
-            self.memory.add_interaction(clean_input, reply)
-            return self._build_result(reply, [{"type": "SHUTDOWN", "success": True}], None)
-
-        if any(keyword in clean_input for keyword in clear_zh) or any(keyword in lower_input for keyword in clear_en):
-            self.memory.reset_conversation()
-            self.state.reset_conversation()
-            reply = _t(lang, "好的，已清除短期記憶。", "Done, short-term memory cleared.")
+        # Step 3: schedule fastpath minimal CRUD
+        # 1. add
+        parsed_add = self.schedule_parser.parse_add(clean_input)
+        if parsed_add is not None:
+            rule = self.scheduler.add(
+                hour=parsed_add["hour"],
+                minute=parsed_add["minute"],
+                actions=parsed_add["actions"],
+                name=parsed_add["name"],
+                year=parsed_add.get("year"),
+                month=parsed_add.get("month"),
+                day=parsed_add.get("day"),
+                recurrence=parsed_add.get("recurrence", "daily"),
+                weekday=parsed_add.get("weekday"),
+            )
+            if rule is None:
+                reply = _t(
+                    lang,
+                    "排程新增失敗，可能已達上限（5條）或與現有排程衝突。",
+                    "Failed to add schedule. The limit (5) may be reached or a conflict exists.",
+                )
+            else:
+                reply = _t(
+                    lang,
+                    f"好的，已設定排程：{parsed_add['name']}，ID 為 {rule['id']}。",
+                    f"Schedule set: {parsed_add['name']}, ID: {rule['id']}.",
+                )
             self.memory.add_interaction(clean_input, reply)
             return self._build_result(reply, [], None)
 
-        manage = self._sched_fastpath.parse_manage(clean_input)
-        if manage is not None:
-            return self._handle_schedule_manage(manage, clean_input, lang)
+        # 2. list
+        parsed_list = self.schedule_parser.parse_list(clean_input)
+        if parsed_list is not None:
+            rules = self.scheduler.list_all()
+            enabled_label = _t(lang, "啟用", "enabled")
+            disabled_label = _t(lang, "停用", "disabled")
+            if not rules:
+                reply = _t(lang, "目前沒有設定任何排程。", "No schedules set.")
+            else:
+                lines = [
+                    f"[{r['id']}] {r['hour']:02d}:{r['minute']:02d} {r['name']} "
+                    f"({enabled_label if r.get('enabled') else disabled_label})"
+                    for r in rules
+                ]
+                reply = _t(lang, "目前的排程：\n", "Current schedules:\n") + "\n".join(lines)
+            self.memory.add_interaction(clean_input, reply)
+            return self._build_result(reply, [], None)
 
-        sched_add = self._sched_fastpath.parse_add(clean_input)
-        if sched_add is not None:
-            return self._handle_schedule_add(sched_add, clean_input, lang)
+        # 3. delete
+        parsed_delete = self.schedule_parser.parse_delete(clean_input)
+        if parsed_delete is not None:
+            rule_id = parsed_delete.get("id")
+            if not rule_id:
+                reply = _t(lang, "請告訴我要刪除哪個排程的 ID。", "Please tell me the schedule ID to delete.")
+            elif self.scheduler.delete(rule_id):
+                reply = _t(lang, f"已刪除排程 {rule_id}。", f"Schedule {rule_id} deleted.")
+            else:
+                reply = _t(lang, f"找不到排程 {rule_id}。", f"Schedule {rule_id} not found.")
+            self.memory.add_interaction(clean_input, reply)
+            return self._build_result(reply, [], None)
+
+        # 4. toggle (enable/disable)
+        parsed_toggle = self.schedule_parser.parse_toggle(clean_input)
+        if parsed_toggle is not None:
+            rule_id = parsed_toggle.get("id")
+            op = parsed_toggle.get("op")
+            if not rule_id:
+                reply = _t(lang, "請告訴我要操作哪個排程的 ID。", "Please tell me the schedule ID.")
+            else:
+                result = self.scheduler.set_enabled(rule_id, op == "enable")
+                if result is None:
+                    reply = _t(lang, f"找不到排程 {rule_id}。", f"Schedule {rule_id} not found.")
+                else:
+                    reply = _t(
+                        lang,
+                        f"排程 {rule_id} 已{'啟用' if result else '停用'}。",
+                        f"Schedule {rule_id} {'enabled' if result else 'disabled'}.",
+                    )
+            self.memory.add_interaction(clean_input, reply)
+            return self._build_result(reply, [], None)
+
+        # ...existing code...
 
         learned = self.fastpath.try_learn_rule(clean_input)
         if learned is not None:

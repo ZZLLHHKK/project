@@ -173,12 +173,8 @@ class ScheduleFastPathParser:
     """Fastpath parser for schedule add/manage commands."""
 
     def parse_add(self, text: str) -> Optional[dict[str, Any]]:
+        # 只要有明確時間就視為 schedule add，不需 schedule signal
         if not has_time_reference(text):
-            return None
-
-        has_signal = any(w in text.lower() for w in _SCHEDULE_SIGNALS)
-        has_period = _detect_period(text) != ""
-        if not has_signal and not has_period:
             return None
 
         time_result = parse_time(text)
@@ -209,6 +205,47 @@ class ScheduleFastPathParser:
 
         name = _make_name(hour, minute, actions)
         return {"hour": hour, "minute": minute, "actions": actions, "name": name, **extra}
+
+    def parse_list(self, text: str) -> Optional[dict[str, Any]]:
+        lowered = text.lower().strip()
+        # 支援中英文查詢排程與常見 schedule list 指令
+        keywords = [
+            "查詢排程", "列出排程", "有哪些排程", "排程列表",
+            "list schedule", "list schedules", "show schedule", "show schedules",
+            "schedules", "schedule list", "my schedules", "all schedules"
+        ]
+        # 完全符合或包含關鍵字皆可
+        if any(kw == lowered or kw in lowered for kw in keywords):
+            return {"op": "list"}
+        return None
+
+    def parse_delete(self, text: str) -> Optional[dict[str, Any]]:
+        lowered = text.lower()
+        # 支援中英文刪除排程，id 可為 8 碼英數
+        m = re.search(r"刪除([a-z0-9]{8})", lowered)
+        if m:
+            return {"op": "delete", "id": m.group(1)}
+        m = re.search(r"delete\s*([a-z0-9]{8})", lowered)
+        if m:
+            return {"op": "delete", "id": m.group(1)}
+        return None
+
+    def parse_toggle(self, text: str) -> Optional[dict[str, Any]]:
+        lowered = text.lower()
+        # 支援中英文啟用/停用排程，id 可為 8 碼英數
+        m = re.search(r"啟用([a-z0-9]{8})", lowered)
+        if m:
+            return {"op": "enable", "id": m.group(1)}
+        m = re.search(r"停用([a-z0-9]{8})", lowered)
+        if m:
+            return {"op": "disable", "id": m.group(1)}
+        m = re.search(r"enable\s*([a-z0-9]{8})", lowered)
+        if m:
+            return {"op": "enable", "id": m.group(1)}
+        m = re.search(r"disable\s*([a-z0-9]{8})", lowered)
+        if m:
+            return {"op": "disable", "id": m.group(1)}
+        return None
 
     def parse_manage(self, text: str) -> Optional[dict[str, Any]]:
         lowered = text.lower()
