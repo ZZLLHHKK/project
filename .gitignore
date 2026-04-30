@@ -13,7 +13,6 @@ __pycache__/
 .Python
 
 # 運行時產生的大檔或臨時資料
-data/recordings/*
 data/history.jsonl
 data/reply.txt
 data/memory/device_state.json
