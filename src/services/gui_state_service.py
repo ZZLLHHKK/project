@@ -46,11 +46,19 @@ def format_device_state_content(state: dict[str, Any], tr: Callable[[str], str],
 
 
 def format_queue_item(item: dict[str, Any], index: int, tr: Callable[[str], str], ensure_text: Callable[[Any], str]) -> str:
-    source = item.get("source") or item.get("raw_command") or item.get("command") or tr("unknown")
-    status = item.get("status") or item.get("state") or tr("unknown")
-    run_time = item.get("run_at") or item.get("time") or item.get("scheduled_for") or tr("unknown")
-    device = item.get("device") or item.get("location") or tr("unknown")
-    action = item.get("action") or item.get("type") or tr("unknown")
+    if "hour" in item and "minute" in item:
+        source = item.get("name") or tr("unknown")
+        enabled = bool(item.get("enabled", True))
+        status = tr("on") if enabled else tr("off")
+        run_time = f"{int(item.get('hour', 0)):02d}:{int(item.get('minute', 0)):02d}"
+        device = "-"
+        action = item.get("recurrence") or tr("unknown")
+    else:
+        source = item.get("source") or item.get("raw_command") or item.get("command") or tr("unknown")
+        status = item.get("status") or item.get("state") or tr("unknown")
+        run_time = item.get("run_at") or item.get("time") or item.get("scheduled_for") or tr("unknown")
+        device = item.get("device") or item.get("location") or tr("unknown")
+        action = item.get("action") or item.get("type") or tr("unknown")
 
     lines = [
         f"{tr('queue_item')} {index}",

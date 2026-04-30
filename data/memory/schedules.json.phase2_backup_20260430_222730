@@ -29,29 +29,19 @@
     "enabled": true,
     "recurrence": "daily",
     "last_triggered": null,
-    "last_executed": null,
     "last_result": null
   },
   {
-    "id": "358a24b4",
-    "name": "20:00 客廳燈開",
-    "hour": 20,
-    "minute": 0,
+    "id": "e79c7e36",
+    "name": "查詢排程",
+    "hour": 22,
+    "minute": 28,
     "second": 0,
-    "actions": [
-      {
-        "type": "LED",
-        "location": "LIVING",
-        "state": "on"
-      }
-    ],
+    "actions": [],
     "enabled": true,
-    "recurrence": "once",
-    "last_executed": null,
+    "recurrence": "daily",
     "last_triggered": null,
-    "last_result": null,
-    "year": 2026,
-    "month": 5,
-    "day": 1
+    "last_executed": null,
+    "last_result": null
   }
 ]

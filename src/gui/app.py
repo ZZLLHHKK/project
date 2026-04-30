@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 import locale
+import audioop
+import subprocess
+import time
 import threading
 import tkinter as tk
 from datetime import datetime
@@ -24,10 +27,22 @@ def _speak_async(text: str) -> None:
     t.start()
 
 from src.gui.popup_views import create_panel_popup, create_text_popup
+from src.gui.schedule_popup_helper import open_schedule_manager_popup
+from src.core.scheduler_runtime import SchedulerRuntime
 from src.runtime import build_runtime
 from src.services.gui_command_service import GuiCommandPresentation, execute_gui_text_command, format_reply_for_language
 from src.services.gui_state_service import display_location, display_state_value, format_device_state_content, format_queue_content
-from src.utils.config import DATA_DIR
+from src.utils.config import DATA_DIR, RULES_FILE, SPEECH_ENABLED, WAKEWORD_ENABLED
+
+try:
+    from src.audio.speech_processor import SpeechProcessor
+except Exception:
+    SpeechProcessor = None  # type: ignore[assignment]
+
+try:
+    from src.utils.wait_wakeword import wait_for_wake_word
+except Exception:
+    wait_for_wake_word = None  # type: ignore[assignment]
 
 
 I18N: dict[str, dict[str, str]] = {
@@ -36,8 +51,12 @@ I18N: dict[str, dict[str, str]] = {
         "system_ready": "系統已啟動，隨時可叫我",
         "idle": "閒置當中",
         "processing": "處理中",
+        "waiting_wake_word": "等待喚醒詞...",
+        "listening": "聆聽中...",
         "ready_detail": "系統已準備完成，可以直接輸入命令。",
         "processing_detail": "正在分析你的指令並產生回應。",
+        "waiting_wake_word_detail": "語音系統待機中，請先喚醒。",
+        "listening_detail": "已喚醒，正在聆聽正式指令。",
         "status_prefix": "狀態",
         "input_label": "輸入命令",
         "send": "送出",
@@ -68,12 +87,16 @@ I18N: dict[str, dict[str, str]] = {
         "guest": "客房",
         "habits": "使用者習慣（開發中）",
         "queue": "排程 Queue",
+        "schedule_manager": "排程管理",
         "refresh": "重新整理",
         "last_sync": "最後同步",
         "no_data": "目前沒有資料",
         "lang": "語言",
         "reply": "回覆",
         "coming_soon": "此功能尚未接上，先保留介面位置。",
+        "habits_hint": "檢視已學習規則。",
+        "habits_empty": "目前沒有已學習規則",
+        "habits_rules": "已學習規則",
         "chat_hint": "按 Enter 或點送出即可對話。",
     },
     "en": {
@@ -81,8 +104,12 @@ I18N: dict[str, dict[str, str]] = {
         "system_ready": "System is ready. You can wake me anytime.",
         "idle": "Idle",
         "processing": "Processing",
+        "waiting_wake_word": "Waiting for wake word...",
+        "listening": "Listening...",
         "ready_detail": "The system is ready. You can type a command now.",
         "processing_detail": "Analyzing your command and preparing a reply.",
+        "waiting_wake_word_detail": "Voice system is idle and waiting for wake word.",
+        "listening_detail": "Wake word detected, listening for command.",
         "status_prefix": "Status",
         "input_label": "Command",
         "send": "Send",
@@ -113,12 +140,16 @@ I18N: dict[str, dict[str, str]] = {
         "guest": "Guest Room",
         "habits": "User Habits (Coming Soon)",
         "queue": "Schedule Queue",
+        "schedule_manager": "Schedule Manager",
         "refresh": "Refresh",
         "last_sync": "Last Sync",
         "no_data": "No data yet",
         "lang": "Language",
         "reply": "Reply",
         "coming_soon": "This feature is not wired yet. The slot is reserved in the UI.",
+        "habits_hint": "View learned rules.",
+        "habits_empty": "No learned rules yet",
+        "habits_rules": "Learned Rules",
         "chat_hint": "Press Enter or click Send to chat.",
     },
 }
@@ -153,8 +184,21 @@ class DashboardApp(tk.Tk):
         self.state = self.runtime.state
         self.memory = self.runtime.memory
         self.agent = self.runtime.agent
-        self.schedule_path = Path(DATA_DIR) / "memory" / "schedule_queue.json"
+        self.schedule_path = Path(DATA_DIR) / "memory" / "schedules.json"
+        self.rules_path = Path(RULES_FILE)
         self.chat_history: list[tuple[str, str]] = []
+        self.speech_enabled = bool(SPEECH_ENABLED)
+        self.wakeword_enabled = bool(WAKEWORD_ENABLED)
+        self._voice_stop_event = threading.Event()
+        self._voice_thread: threading.Thread | None = None
+        self._speech = None
+        self._wakeword_backend_available = self.wakeword_enabled and callable(wait_for_wake_word)
+        if self.speech_enabled and SpeechProcessor is not None:
+            try:
+                self._speech = SpeechProcessor()
+            except Exception:
+                self._speech = None
+                self.speech_enabled = False
         self.ui_font_size = 11
         self.zh_font_family, self.en_font_family = self._resolve_font_families()
         self.has_cjk_font = self.zh_font_family not in {"DejaVu Sans", "Noto Sans", "Liberation Sans", "Arial", "Helvetica", "Ubuntu"}
@@ -171,6 +215,22 @@ class DashboardApp(tk.Tk):
         self.after(50, self._focus_input)
         self.after(300, lambda: _speak_async(I18N["zh"]["system_ready"]) if self.lang.get() == "zh" else None)
 
+        SchedulerRuntime.start(
+            self,
+            self.agent,
+            lambda: self.lang.get(),
+            self._on_schedule_executed
+        )
+        self._start_voice_loop()
+        self.protocol("WM_DELETE_WINDOW", self._on_closing)
+
+    def _on_schedule_executed(self, command_text: str, reply: str) -> None:
+        self._append_chat_message("system", f"[Scheduler] {command_text}\n{reply}")
+
+    def _on_closing(self) -> None:
+        self._voice_stop_event.set()
+        SchedulerRuntime.stop()
+        self.destroy()
     def tr(self, key: str) -> str:
         return I18N[self.lang.get()].get(key, key)
 
@@ -341,8 +401,8 @@ class DashboardApp(tk.Tk):
     def _apply_command_result(self, result: GuiCommandPresentation) -> None:
         self.reply_text.set(result.formatted_reply)
         self._append_chat_message(self.tr("assistant"), result.formatted_reply)
-        if result.should_speak:
-            _speak_async(result.raw_reply)
+        if result.should_speak and result.spoken_reply:
+            _speak_async(result.spoken_reply)
 
     def _render_chat_history(self) -> None:
         if not hasattr(self, "chat_box"):
@@ -463,12 +523,11 @@ class DashboardApp(tk.Tk):
         self.habits_btn = tk.Button(
             btns,
             text=self._ensure_text(self.tr("habits")),
-            state=tk.DISABLED,
-            disabledforeground="#6b7280",
+            command=self._open_habits,
             font=self.font_normal,
         )
         self.habits_btn.pack(fill=tk.X, pady=3)
-        self.habits_hint_label = tk.Label(right, text=self._ensure_text(self.tr("coming_soon")), anchor="w", justify=tk.LEFT, wraplength=250, fg="#6b7280", font=self.font_normal)
+        self.habits_hint_label = tk.Label(right, text=self._ensure_text(self.tr("habits_hint")), anchor="w", justify=tk.LEFT, wraplength=250, fg="#6b7280", font=self.font_normal)
         self.habits_hint_label.pack(fill=tk.X, pady=(0, 8))
         self.queue_btn = tk.Button(btns, text=self._ensure_text(self.tr("queue")), command=self._open_queue, font=self.font_normal)
         self.queue_btn.pack(fill=tk.X, pady=3)
@@ -492,13 +551,12 @@ class DashboardApp(tk.Tk):
         self.sync_label.configure(text=f"{self._ensure_text(self.tr('last_sync'))}: {now}")
         self.after(1000, self._tick_clock)
 
-    def _on_send(self, event: tk.Event | None = None) -> None:
-        raw = self.command_text.get().strip()
+    def _submit_command(self, raw: str, speaker: str) -> None:
         if not raw:
-            self._focus_input()
             return
-
-        self._begin_command_flow(raw)
+        self._set_input_enabled(False)
+        self._set_status(self.tr("processing"), self.tr("processing_detail"))
+        self._append_chat_message(speaker, raw)
         current_language = self.lang.get()
 
         def _worker() -> None:
@@ -506,6 +564,15 @@ class DashboardApp(tk.Tk):
             self.after(0, lambda: self._on_send_done(result))
 
         threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_send(self, event: tk.Event | None = None) -> None:
+        raw = self.command_text.get().strip()
+        if not raw:
+            self._focus_input()
+            return
+
+        self.command_text.set("")
+        self._submit_command(raw, self.tr("you"))
 
     def _on_send_done(self, result: GuiCommandPresentation) -> None:
         self._apply_command_result(result)
@@ -524,6 +591,106 @@ class DashboardApp(tk.Tk):
         if isinstance(payload, list):
             return [x for x in payload if isinstance(x, dict)]
         return []
+
+    def _format_habits_content(self) -> str:
+        rules: list[dict[str, Any]] = []
+
+        try:
+            raw_rules = json.loads(self.rules_path.read_text(encoding="utf-8")) if self.rules_path.exists() else {}
+            if isinstance(raw_rules, dict):
+                items = raw_rules.get("rules", [])
+                if isinstance(items, list):
+                    rules = [x for x in items if isinstance(x, dict)]
+            elif isinstance(raw_rules, list):
+                rules = [x for x in raw_rules if isinstance(x, dict)]
+        except Exception:
+            rules = []
+
+        sections: list[str] = []
+        sections.append(self._ensure_text(self.tr("habits_rules")))
+        if rules:
+            for rule in rules:
+                trigger = self._ensure_text(rule.get("trigger", "")).strip()
+                meaning = self._ensure_text(rule.get("meaning", "")).strip()
+                if trigger and meaning:
+                    sections.append(f"- {trigger} => {meaning}")
+        else:
+            sections.append(f"- {self._ensure_text(self.tr('habits_empty'))}")
+
+        return "\n".join(sections)
+
+    def _set_status_async(self, state_text: str, detail_text: str) -> None:
+        self.after(0, lambda: self._set_status(state_text, detail_text))
+
+    def _detect_wake_by_energy(self, timeout_seconds: int = 3) -> bool:
+        if self._speech is None:
+            return False
+        device = getattr(self._speech, "device", "default")
+        cmd = [
+            "arecord", "-D", str(device), "-r", "16000", "-c", "1", "-f", "S16_LE", "-t", "raw",
+        ]
+        try:
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        except Exception:
+            return False
+
+        threshold = 800
+        chunk_bytes = 3200
+        end_at = time.time() + max(1, timeout_seconds)
+        activated = False
+        try:
+            while not self._voice_stop_event.is_set() and time.time() < end_at:
+                if proc.stdout is None:
+                    break
+                data = proc.stdout.read(chunk_bytes)
+                if not data:
+                    break
+                if audioop.rms(data, 2) >= threshold:
+                    activated = True
+                    break
+        finally:
+            try:
+                proc.terminate()
+                proc.wait(timeout=1)
+            except Exception:
+                pass
+        return activated
+
+    def _wait_for_wake(self) -> bool:
+        if self._voice_stop_event.is_set():
+            return False
+        if self._wakeword_backend_available and callable(wait_for_wake_word):
+            ok = bool(wait_for_wake_word())
+            if not ok:
+                self._wakeword_backend_available = False
+            return ok
+        return self._detect_wake_by_energy(timeout_seconds=3)
+
+    def _start_voice_loop(self) -> None:
+        if not self.speech_enabled or self._speech is None:
+            return
+
+        def _voice_worker() -> None:
+            while not self._voice_stop_event.is_set():
+                self._set_status_async(self.tr("waiting_wake_word"), self.tr("waiting_wake_word_detail"))
+                if not self._wait_for_wake():
+                    continue
+                if self._voice_stop_event.is_set():
+                    break
+
+                self._set_status_async(self.tr("listening"), self.tr("listening_detail"))
+                try:
+                    spoken = self._speech.speech_to_text(duration=getattr(self._speech, "default_duration", 5)).strip()
+                except Exception:
+                    spoken = ""
+
+                if not spoken:
+                    continue
+
+                self.after(0, lambda text=spoken: self._submit_command(text, self.tr("you")))
+
+        self._voice_thread = threading.Thread(target=_voice_worker, daemon=True, name="gui-voice-loop")
+        self._voice_thread.start()
 
     def _open_device_state(self) -> None:
         safe_title = self._safe_child_title_text(self._ensure_text(self.tr("device_state")))
@@ -581,7 +748,19 @@ class DashboardApp(tk.Tk):
         )
 
     def _open_queue(self) -> None:
-        self._open_text_window(self._ensure_text(self.tr("queue")), self._format_queue_content())
+        open_schedule_manager_popup(
+            self,
+            self.agent.scheduler,
+            safe_title=self._safe_child_title_text(self._ensure_text(self.tr("schedule_manager"))),
+            tr=self.tr,
+            ensure_text=self._ensure_text,
+            font_title=self.font_title,
+            font_normal=self.font_normal,
+            font_mono=self.font_mono,
+        )
+
+    def _open_habits(self) -> None:
+        self._open_text_window(self._ensure_text(self.tr("habits")), self._format_habits_content())
 
     def _open_text_window(self, title: str, content: str) -> None:
         create_text_popup(
@@ -602,6 +781,8 @@ class DashboardApp(tk.Tk):
             return self._format_device_state_content()
         if title == self.tr("queue"):
             return self._format_queue_content()
+        if title == self.tr("habits"):
+            return self._format_habits_content()
         return self._ensure_text(self.tr("no_data"))
 
     def _on_language_change(self, event: tk.Event | None = None) -> None:
@@ -617,7 +798,7 @@ class DashboardApp(tk.Tk):
         self.dashboard_frame.configure(text=self._ensure_text(self.tr("dashboard")))
         self.device_btn.configure(text=self._ensure_text(self.tr("device_state")))
         self.habits_btn.configure(text=self._ensure_text(self.tr("habits")))
-        self.habits_hint_label.configure(text=self._ensure_text(self.tr("coming_soon")))
+        self.habits_hint_label.configure(text=self._ensure_text(self.tr("habits_hint")))
         self.queue_btn.configure(text=self._ensure_text(self.tr("queue")))
         self._load_chat_history()
         if not self.chat_history:

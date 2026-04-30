@@ -11,6 +11,7 @@ from src.services.command_service import CommandResult, execute_text_command
 class GuiCommandPresentation:
     raw_reply: str
     formatted_reply: str
+    spoken_reply: str
     error: str | None
     should_shutdown: bool
     should_standby: bool
@@ -62,13 +63,24 @@ def format_reply_for_language(reply: str, language: str) -> str:
     return reply
 
 
+def _sanitize_tts_reply(reply: str) -> str:
+    text = reply or ""
+    text = re.sub(r"\[[a-f0-9]{8}\]", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bID\s*[為:]?\s*[a-f0-9]{8}\b", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b[a-f0-9]{8}\b", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
 def build_gui_command_presentation(result: CommandResult, language: str) -> GuiCommandPresentation:
     raw_reply = str(result.raw_reply or "")
     formatted_reply = format_reply_for_language(raw_reply, language)
+    spoken_reply = _sanitize_tts_reply(raw_reply)
     should_speak = language == "zh" and bool(raw_reply)
     return GuiCommandPresentation(
         raw_reply=raw_reply,
         formatted_reply=formatted_reply,
+        spoken_reply=spoken_reply,
         error=result.error,
         should_shutdown=result.should_shutdown,
         should_standby=result.should_standby,

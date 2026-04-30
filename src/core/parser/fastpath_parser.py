@@ -8,9 +8,14 @@ import src.utils.config as config
 
 LEARN_PATTERNS = [
     re.compile(r"^\s*當我說\s*(.+?)\s*(?:的時候|時|時候)?\s*[，,]?\s*代表\s*(.+?)\s*$"),
-    re.compile(r"^\s*(?:以後|之後)\s*我說\s*(.+?)\s*(?:就|代表)\s*(.+?)\s*$"),
+    re.compile(r"^\s*(?:以後|之後)\s*我說\s*(.+?)\s*(?:就是|就|代表)\s*(.+?)\s*$"),
+    re.compile(r"^\s*我說\s*(.+?)\s*(?:的)?意思是\s*(.+?)\s*$"),
+    re.compile(r"^\s*(.+?)\s*代表\s*(.+?)\s*$"),
     re.compile(r"^\s*如果我說\s*(.+?)\s*[，,]?\s*(?:請|就)\s*(.+?)\s*$"),
 ]
+
+LEARN_GROUP_1 = ("當我說", "以後我說", "之後我說", "如果我說")
+LEARN_GROUP_2 = ("代表", "意思是", "等於", "就是", "就")
 
 TEMP_KEYWORDS = (
     "溫度",
@@ -30,6 +35,8 @@ TEMP_KEYWORDS = (
     "thermostat",
 )
 NUM_RE = re.compile(r"(-?\d+(?:\.\d+)?)\s*(?:度|°|c|℃)?", re.IGNORECASE)
+_TEMP_WITH_UNIT_RE = re.compile(r"(-?\d+(?:\.\d+)?)\s*(?:度|°|℃)", re.IGNORECASE)
+_TIME_NUM_RE = re.compile(r"\d+\s*(?:點|時|分|秒)")
 
 KW_ON = ("開", "打開", "開啟", "on", "turn on", "open", "start")
 KW_OFF = ("關", "關掉", "關閉", "off", "turn off", "close", "stop")
@@ -53,6 +60,42 @@ def _clamp_temperature(value: float) -> int:
 class FastPathParser:
     """Rule-based parser for explicit commands and user-taught aliases."""
 
+    def _extract_rule_by_groups(self, text: str) -> Optional[dict[str, str]]:
+        first_match: Optional[tuple[int, str]] = None
+        for marker in LEARN_GROUP_1:
+            idx = text.find(marker)
+            if idx >= 0 and (first_match is None or idx < first_match[0]):
+                first_match = (idx, marker)
+
+        if first_match is None:
+            return None
+
+        start = first_match[0] + len(first_match[1])
+        tail = text[start:]
+
+        second_match: Optional[tuple[int, str]] = None
+        for marker in LEARN_GROUP_2:
+            idx = tail.find(marker)
+            if idx >= 0 and (second_match is None or idx < second_match[0]):
+                second_match = (idx, marker)
+
+        if second_match is None:
+            return None
+
+        split_idx, split_marker = second_match
+        trigger = tail[:split_idx].strip().strip("，,：:。;； ")
+        trigger = re.sub(r"(?:的時候|時候|時)$", "", trigger).strip()
+
+        meaning = tail[split_idx + len(split_marker):].strip().strip("，,：:。;； ")
+        meaning = re.sub(r"^(?:請|就)\s*", "", meaning).strip()
+
+        trigger = trigger.strip("「」\"'")
+        meaning = meaning.strip("「」\"'")
+
+        if not trigger or not meaning:
+            return None
+        return {"trigger": trigger, "meaning": meaning}
+
     def try_learn_rule(self, user_text: str) -> Optional[dict[str, str]]:
         text = (user_text or "").strip()
         for pattern in LEARN_PATTERNS:
@@ -63,27 +106,46 @@ class FastPathParser:
             meaning = match.group(2).strip().strip("「」\"'")
             if trigger and meaning:
                 return {"trigger": trigger, "meaning": meaning}
-        return None
+        return self._extract_rule_by_groups(text)
 
     def apply_rules(self, user_text: str, rules: list[dict[str, str]]) -> str:
         text = user_text or ""
-        for rule in rules:
+        normalized_rules = sorted(
+            rules,
+            key=lambda item: len(str(item.get("trigger", "")).strip()),
+            reverse=True,
+        )
+        for rule in normalized_rules:
             trigger = str(rule.get("trigger", "")).strip()
             meaning = str(rule.get("meaning", "")).strip()
             if trigger and meaning:
-                text = text.replace(trigger, meaning)
+                if re.fullmatch(r"[\w\s\-]+", trigger, flags=re.UNICODE):
+                    pattern = re.compile(rf"(?<!\w){re.escape(trigger)}(?!\w)", flags=re.UNICODE)
+                    text = pattern.sub(meaning, text)
+                else:
+                    text = text.replace(trigger, meaning)
         return text
 
     def _parse_temperature(self, text: str) -> Optional[list[dict[str, Any]]]:
         lowered = text.lower()
         if not any(keyword in lowered for keyword in TEMP_KEYWORDS):
             return None
-        for raw in NUM_RE.findall(text):
+
+        for raw in _TEMP_WITH_UNIT_RE.findall(text):
             try:
                 value = float(raw)
             except Exception:
                 continue
             if 0 <= value <= 60:
+                return [{"type": "SET_TEMP", "value": _clamp_temperature(value)}]
+
+        clean = _TIME_NUM_RE.sub("", text)
+        for raw in NUM_RE.findall(clean):
+            try:
+                value = float(raw)
+            except Exception:
+                continue
+            if 15 <= value <= 45:
                 return [{"type": "SET_TEMP", "value": _clamp_temperature(value)}]
         return None
 

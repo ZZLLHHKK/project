@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 import tkinter as tk
 from tkinter import messagebox, simpledialog
 from tkinter import font as tkfont
@@ -7,6 +8,73 @@ from tkinter import ttk
 from typing import Any, Callable
 
 from src.gui.popup_views import create_panel_popup
+
+
+def _format_schedule_recurrence(rule: dict[str, Any]) -> str:
+    recurrence = str(rule.get("recurrence") or "daily").lower()
+    if recurrence == "daily":
+        return "每天"
+    if recurrence == "weekly":
+        return "每週"
+    if recurrence == "monthly":
+        return "每月"
+    if recurrence == "once":
+        year = rule.get("year")
+        month = rule.get("month")
+        day = rule.get("day")
+        if month and day:
+            today = datetime.now().date()
+            try:
+                target = datetime(
+                    int(year) if year is not None else today.year,
+                    int(month),
+                    int(day),
+                ).date()
+                if target == today:
+                    return "今天"
+                if target == today + timedelta(days=1):
+                    return "明天"
+            except Exception:
+                pass
+            if year:
+                return f"{int(year):04d}/{int(month):02d}/{int(day):02d}"
+            return f"{int(month):02d}/{int(day):02d}"
+        return "單次"
+    return "排程"
+
+
+def _format_schedule_action_summary(rule: dict[str, Any]) -> str:
+    actions = rule.get("actions")
+    if not isinstance(actions, list) or not actions:
+        return str(rule.get("name") or "").strip() or "排程"
+
+    loc_map = {"LIVING": "客廳", "KITCHEN": "廚房", "GUEST": "客房"}
+    parts: list[str] = []
+    for action in actions:
+        if not isinstance(action, dict):
+            continue
+        action_type = str(action.get("type") or "").upper()
+        state_on = str(action.get("state") or "").lower() == "on"
+        if action_type == "FAN":
+            parts.append("開風扇" if state_on else "關風扇")
+        elif action_type == "LED":
+            loc_key = str(action.get("location") or "").upper()
+            loc = loc_map.get(loc_key, "")
+            parts.append(f"{'開' if state_on else '關'}{loc}燈" if loc else ("開燈" if state_on else "關燈"))
+        elif action_type == "SET_TEMP":
+            parts.append(f"設定溫度 {action.get('value')} 度")
+
+    if parts:
+        return "、".join(parts)
+    return str(rule.get("name") or "").strip() or "排程"
+
+
+def _format_schedule_line(idx: int, rule: dict[str, Any]) -> str:
+    hour = int(rule.get("hour", 0))
+    minute = int(rule.get("minute", 0))
+    recurrence = _format_schedule_recurrence(rule)
+    action_text = _format_schedule_action_summary(rule)
+    return f"{idx}. {recurrence} {hour:02d}:{minute:02d} {action_text}".strip()
 
 
 def parse_add_payload(
@@ -78,12 +146,8 @@ def render_schedule_panel(
         body.insert("1.0", "(no schedules)")
     else:
         lines: list[str] = []
-        for rule in rules:
-            status = "on" if rule.get("enabled", True) else "off"
-            lines.append(
-                f"[{rule.get('id')}] {rule.get('hour', 0):02d}:{rule.get('minute', 0):02d}"
-                f" {rule.get('name', '')} ({status})"
-            )
+        for idx, rule in enumerate(rules, start=1):
+            lines.append(_format_schedule_line(idx, rule))
         body.insert("1.0", "\n".join(lines))
     body.configure(state=tk.DISABLED)
 

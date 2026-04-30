@@ -10,21 +10,68 @@ from pathlib import Path
 from typing import Any, Optional
 
 
+
 class ScheduleManager:
     """Manage time-based automation rules with thread safety."""
 
     MAX_SCHEDULES = 5
 
+    def get_due_schedules(self, current_time):
+        def _to_int(value):
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return None
+
+        with self._lock:
+            rules = self._read()
+            due = []
+            today = current_time.strftime('%Y-%m-%d')
+            current_slot = current_time.strftime('%Y-%m-%d %H:%M')
+            for rule in rules:
+                if not rule.get('enabled', True):
+                    continue
+                hour, minute = rule.get('hour'), rule.get('minute')
+                if hour == current_time.hour and minute == current_time.minute:
+                    year = _to_int(rule.get('year'))
+                    month = _to_int(rule.get('month'))
+                    day = _to_int(rule.get('day'))
+                    if year and year != current_time.year:
+                        continue
+                    if month and month != current_time.month:
+                        continue
+                    if day and day != current_time.day:
+                        continue
+
+                    last_executed = str(rule.get('last_executed') or '')
+                    if last_executed == today:
+                        continue
+
+                    last = str(rule.get('last_triggered') or '')
+                    if not last or last[:16] != current_slot:
+                        due.append(rule)
+            return due
+
+    def mark_schedule_executed(self, schedule_id, exec_time):
+        with self._lock:
+            rules = self._read()
+            for rule in rules:
+                if rule.get('id') == schedule_id:
+                    rule['last_executed'] = exec_time.strftime('%Y-%m-%d')
+                    rule['last_triggered'] = exec_time.strftime('%Y-%m-%d %H:%M:%S')
+            self._write(rules)
+
     def __init__(self) -> None:
         project_root = Path(__file__).resolve().parents[2]
         self._path = project_root / "data" / "memory" / "schedules.json"
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._lock = threading.RLock()
+        if not hasattr(self, "_lock"):
+            self._lock = threading.RLock()
         try:
             self.max_schedules = max(1, int(os.environ.get("MAX_SCHEDULES", str(self.MAX_SCHEDULES))))
         except Exception:
             self.max_schedules = self.MAX_SCHEDULES
-        self._user_overrides: dict[str, float] = {}
+        self._user_overrides = {}
         if not self._path.exists():
             self._write([])
 
@@ -70,6 +117,7 @@ class ScheduleManager:
             "actions": actions,
             "enabled": True,
             "recurrence": recurrence,
+            "last_executed": None,
             "last_triggered": None,
             "last_result": None,
         }

@@ -19,6 +19,7 @@ data/reply.txt
 data/memory/device_state.json
 data/memory/short_term.json
 data/memory/long_term.jsonl
+data/memory/schedules.json
 
 # 本機測試用虛擬環境殘留
 scripts/.venv/

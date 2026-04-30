@@ -3,6 +3,10 @@
     {
       "trigger": "睡覺模式",
       "meaning": "關掉全部"
+    },
+    {
+      "trigger": "晚安",
+      "meaning": "全部關燈"
     }
   ]
 }

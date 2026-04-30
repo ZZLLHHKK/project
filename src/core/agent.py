@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from .memory_agent import MemoryAgent
@@ -13,9 +14,25 @@ from src.utils.lang_detect import detect_lang
 FRIENDLY_ERROR = "抱歉，我現在無法處理，請稍後再試。"
 FRIENDLY_ERROR_EN = "Sorry, I'm unable to process that right now. Please try again later."
 
+_COMMON_STT_REWRITES = {
+    "行程": "排程",
+    "定時": "排程",
+    "開登": "開燈",
+    "關登": "關燈",
+    "風善": "風扇",
+    "溫渡": "溫度",
+}
+
 
 def _t(lang: str, zh: str, en: str) -> str:
     return en if lang == "en" else zh
+
+
+def _normalize_input(text: str) -> str:
+    normalized = text
+    for wrong, corrected in _COMMON_STT_REWRITES.items():
+        normalized = normalized.replace(wrong, corrected)
+    return normalized
 
 
 class ActionExecutionError(RuntimeError):
@@ -78,6 +95,97 @@ class SmartHomeAgent:
             return results, "device_execution_failed"
         return results, None
 
+    def _format_schedule_recurrence(self, rule: dict[str, Any], lang: str = "zh") -> str:
+        recurrence = str(rule.get("recurrence") or "daily").lower()
+        if lang == "en":
+            if recurrence == "daily":
+                return "Every day"
+            if recurrence == "weekly":
+                return "Weekly"
+            if recurrence == "monthly":
+                return "Monthly"
+            if recurrence == "once":
+                year = rule.get("year")
+                month = rule.get("month")
+                day = rule.get("day")
+                if month and day:
+                    if year:
+                        return f"{int(year):04d}/{int(month):02d}/{int(day):02d}"
+                    return f"{int(month):02d}/{int(day):02d}"
+                return "One-time"
+            return "Scheduled"
+
+        if recurrence == "daily":
+            return "每天"
+        if recurrence == "weekly":
+            return "每週"
+        if recurrence == "monthly":
+            return "每月"
+        if recurrence == "once":
+            year = rule.get("year")
+            month = rule.get("month")
+            day = rule.get("day")
+            if month and day:
+                today = datetime.now().date()
+                try:
+                    target = datetime(
+                        int(year) if year is not None else today.year,
+                        int(month),
+                        int(day),
+                    ).date()
+                    if target == today:
+                        return "今天"
+                    if target == today + timedelta(days=1):
+                        return "明天"
+                except Exception:
+                    pass
+                if year:
+                    return f"{int(year):04d}/{int(month):02d}/{int(day):02d}"
+                return f"{int(month):02d}/{int(day):02d}"
+            return "單次"
+        return "排程"
+
+    def _format_schedule_action_summary(self, rule: dict[str, Any], lang: str = "zh") -> str:
+        actions = rule.get("actions")
+        if not isinstance(actions, list) or not actions:
+            name = str(rule.get("name") or "").strip()
+            return name or ("scheduled task" if lang == "en" else "排程")
+
+        zh_loc = {"LIVING": "客廳", "KITCHEN": "廚房", "GUEST": "客房"}
+        en_loc = {"LIVING": "living room", "KITCHEN": "kitchen", "GUEST": "guest room"}
+        parts: list[str] = []
+        for action in actions:
+            if not isinstance(action, dict):
+                continue
+            action_type = str(action.get("type") or "").upper()
+            state_on = str(action.get("state") or "").lower() == "on"
+            if action_type == "FAN":
+                parts.append("turn fan on" if (lang == "en" and state_on) else "turn fan off" if lang == "en" else "開風扇" if state_on else "關風扇")
+            elif action_type == "LED":
+                loc_key = str(action.get("location") or "").upper()
+                if lang == "en":
+                    loc = en_loc.get(loc_key, "light")
+                    parts.append(f"turn {loc} light {'on' if state_on else 'off'}")
+                else:
+                    loc = zh_loc.get(loc_key, "燈")
+                    parts.append(f"{'開' if state_on else '關'}{loc}燈")
+            elif action_type == "SET_TEMP":
+                val = action.get("value")
+                parts.append(f"set temperature to {val}°C" if lang == "en" else f"設定溫度 {val} 度")
+
+        if parts:
+            return ", ".join(parts) if lang == "en" else "、".join(parts)
+
+        name = str(rule.get("name") or "").strip()
+        return name or ("scheduled task" if lang == "en" else "排程")
+
+    def _format_schedule_line(self, idx: int, rule: dict[str, Any], lang: str = "zh") -> str:
+        hour = int(rule.get("hour", 0))
+        minute = int(rule.get("minute", 0))
+        recurrence = self._format_schedule_recurrence(rule, lang)
+        action_text = self._format_schedule_action_summary(rule, lang)
+        return f"{idx}. {recurrence} {hour:02d}:{minute:02d} {action_text}".strip()
+
     def _handle_schedule_add(self, parsed: dict[str, Any], original: str, lang: str = "zh") -> dict[str, Any]:
         rule = self.scheduler.add(
             hour=parsed["hour"],
@@ -99,8 +207,8 @@ class SmartHomeAgent:
         else:
             reply = _t(
                 lang,
-                f"好的，已設定排程：{parsed['name']}，ID 為 {rule['id']}。",
-                f"Schedule set: {parsed['name']}, ID: {rule['id']}.",
+                f"好的，已設定排程：{parsed['name']}。",
+                f"Schedule set: {parsed['name']}.",
             )
         self.memory.add_interaction(original, reply)
         return self._build_result(reply, [], None)
@@ -117,11 +225,7 @@ class SmartHomeAgent:
             if not rules:
                 reply = _t(lang, "目前沒有設定任何排程。", "No schedules set.")
             else:
-                lines = [
-                    f"[{r['id']}] {r['hour']:02d}:{r['minute']:02d} {r['name']} "
-                    f"({enabled_label if r.get('enabled') else disabled_label})"
-                    for r in rules
-                ]
+                lines = [self._format_schedule_line(idx, r, lang) for idx, r in enumerate(rules, start=1)]
                 reply = _t(lang, "目前的排程：\n", "Current schedules:\n") + "\n".join(lines)
 
         elif op == "list_date":
@@ -133,11 +237,7 @@ class SmartHomeAgent:
                 if not rules:
                     reply = _t(lang, f"{month}月{day}號沒有設定任何排程。", f"No schedules on {month}/{day}.")
                 else:
-                    lines = [
-                        f"[{r['id']}] {r['hour']:02d}:{r['minute']:02d} {r['name']} "
-                        f"({enabled_label if r.get('enabled') else disabled_label})"
-                        for r in rules
-                    ]
+                    lines = [self._format_schedule_line(idx, r, lang) for idx, r in enumerate(rules, start=1)]
                     reply = _t(lang, f"{month}月{day}號的排程：\n", f"Schedules on {month}/{day}:\n") + "\n".join(lines)
             else:
                 reply = _t(lang, "請告訴我要查詢哪一天的排程。", "Please tell me which date to query.")
@@ -159,9 +259,9 @@ class SmartHomeAgent:
             if not rule_id:
                 reply = _t(lang, "請告訴我要刪除哪個排程的 ID。", "Please tell me the schedule ID to delete.")
             elif self.scheduler.delete(rule_id):
-                reply = _t(lang, f"已刪除排程 {rule_id}。", f"Schedule {rule_id} deleted.")
+                reply = _t(lang, "已刪除指定排程。", "Selected schedule deleted.")
             else:
-                reply = _t(lang, f"找不到排程 {rule_id}。", f"Schedule {rule_id} not found.")
+                reply = _t(lang, "找不到指定排程。", "Selected schedule not found.")
 
         elif op in ("enable", "disable"):
             if not rule_id:
@@ -169,12 +269,12 @@ class SmartHomeAgent:
             else:
                 result = self.scheduler.set_enabled(rule_id, op == "enable")
                 if result is None:
-                    reply = _t(lang, f"找不到排程 {rule_id}。", f"Schedule {rule_id} not found.")
+                    reply = _t(lang, "找不到指定排程。", "Selected schedule not found.")
                 else:
                     reply = _t(
                         lang,
-                        f"排程 {rule_id} 已{'啟用' if result else '停用'}。",
-                        f"Schedule {rule_id} {'enabled' if result else 'disabled'}.",
+                        f"排程已{'啟用' if result else '停用'}。",
+                        f"Schedule {'enabled' if result else 'disabled'}.",
                     )
         else:
             reply = _t(lang, "不確定你想對排程做什麼操作。", "I'm not sure what you want to do with the schedule.")
@@ -219,7 +319,7 @@ class SmartHomeAgent:
                 if rule:
                     sched_executed.append(dict(action, success=True, id=rule["id"]))
                     sched_reply_parts.append(
-                        _t(lang, f"已設定排程：{name}（ID: {rule['id']}）", f"Schedule set: {name} (ID: {rule['id']})")
+                        _t(lang, f"已設定排程：{name}", f"Schedule set: {name}")
                     )
                 else:
                     sched_executed.append(dict(action, success=False))
@@ -238,7 +338,7 @@ class SmartHomeAgent:
                 if month and day:
                     rules = self.scheduler.list_by_date(month, day, year)
                     if rules:
-                        lines = [f"[{r['id']}] {r['hour']:02d}:{r['minute']:02d} {r['name']}" for r in rules]
+                        lines = [self._format_schedule_line(idx, r, lang) for idx, r in enumerate(rules, start=1)]
                         sched_reply_parts.append(
                             _t(lang, f"{month}月{day}號的排程：\n" + "\n".join(lines), f"Schedules on {month}/{day}:\n" + "\n".join(lines))
                         )
@@ -253,7 +353,7 @@ class SmartHomeAgent:
             elif action_type == "SCHEDULE_LIST":
                 rules = self.scheduler.list_all()
                 if rules:
-                    lines = [f"[{r['id']}] {r['hour']:02d}:{r['minute']:02d} {r['name']}" for r in rules]
+                    lines = [self._format_schedule_line(idx, r, lang) for idx, r in enumerate(rules, start=1)]
                     sched_reply_parts.append(_t(lang, "排程列表：\n" + "\n".join(lines), "Schedule list:\n" + "\n".join(lines)))
                 else:
                     sched_reply_parts.append(_t(lang, "目前沒有設定任何排程。", "No schedules set."))
@@ -266,8 +366,8 @@ class SmartHomeAgent:
                 sched_reply_parts.append(
                     _t(
                         lang,
-                        f"已刪除排程 {rule_id}。" if ok else f"找不到排程 {rule_id}。",
-                        f"Schedule {rule_id} deleted." if ok else f"Schedule {rule_id} not found.",
+                        "已刪除指定排程。" if ok else "找不到指定排程。",
+                        "Selected schedule deleted." if ok else "Selected schedule not found.",
                     )
                 )
 
@@ -280,12 +380,34 @@ class SmartHomeAgent:
                     sched_reply_parts.append(
                         _t(
                             lang,
-                            f"排程 {rule_id} 已{'啟用' if result else '停用'}。",
-                            f"Schedule {rule_id} {'enabled' if result else 'disabled'}.",
+                            f"排程已{'啟用' if result else '停用'}。",
+                            f"Schedule {'enabled' if result else 'disabled'}.",
                         )
                     )
                 else:
-                    sched_reply_parts.append(_t(lang, f"找不到排程 {rule_id}。", f"Schedule {rule_id} not found."))
+                    sched_reply_parts.append(_t(lang, "找不到指定排程。", "Selected schedule not found."))
+
+            elif action_type == "LEARN_RULE":
+                trigger = str(action.get("trigger", "")).strip()
+                meaning = str(action.get("meaning", "")).strip()
+                ok = self.memory.save_rule(trigger, meaning) if trigger and meaning else False
+                sched_executed.append(dict(action, success=ok))
+                if ok:
+                    sched_reply_parts.append(
+                        _t(
+                            lang,
+                            f"好的，我記住了：{trigger} 代表 {meaning}",
+                            f"Got it! When you say '{trigger}', it means '{meaning}'.",
+                        )
+                    )
+                else:
+                    sched_reply_parts.append(
+                        _t(
+                            lang,
+                            "規則新增失敗，請確認觸發詞與語意是否完整，或是否已存在。",
+                            "Failed to add rule. Please ensure trigger and meaning are complete or not duplicated.",
+                        )
+                    )
 
             else:
                 device_actions.append(action)
@@ -306,7 +428,7 @@ class SmartHomeAgent:
         }
 
     def handle(self, user_input: str, lang: str | None = None) -> dict[str, Any]:
-        clean_input = (user_input or "").strip()
+        clean_input = _normalize_input((user_input or "").strip())
         lang = lang if lang in ("zh", "en") else detect_lang(clean_input)
         if not clean_input:
             return self._build_result(_t(lang, "請告訴我你想控制的設備或需求。", "Please tell me what you need."), [], None)
@@ -344,8 +466,8 @@ class SmartHomeAgent:
             else:
                 reply = _t(
                     lang,
-                    f"好的，已設定排程：{parsed_add['name']}，ID 為 {rule['id']}。",
-                    f"Schedule set: {parsed_add['name']}, ID: {rule['id']}.",
+                    f"好的，已設定排程：{parsed_add['name']}。",
+                    f"Schedule set: {parsed_add['name']}.",
                 )
             self.memory.add_interaction(clean_input, reply)
             return self._build_result(reply, [], None)
@@ -354,16 +476,10 @@ class SmartHomeAgent:
         parsed_list = self.schedule_parser.parse_list(clean_input)
         if parsed_list is not None:
             rules = self.scheduler.list_all()
-            enabled_label = _t(lang, "啟用", "enabled")
-            disabled_label = _t(lang, "停用", "disabled")
             if not rules:
                 reply = _t(lang, "目前沒有設定任何排程。", "No schedules set.")
             else:
-                lines = [
-                    f"[{r['id']}] {r['hour']:02d}:{r['minute']:02d} {r['name']} "
-                    f"({enabled_label if r.get('enabled') else disabled_label})"
-                    for r in rules
-                ]
+                lines = [self._format_schedule_line(idx, r, lang) for idx, r in enumerate(rules, start=1)]
                 reply = _t(lang, "目前的排程：\n", "Current schedules:\n") + "\n".join(lines)
             self.memory.add_interaction(clean_input, reply)
             return self._build_result(reply, [], None)
@@ -375,9 +491,9 @@ class SmartHomeAgent:
             if not rule_id:
                 reply = _t(lang, "請告訴我要刪除哪個排程的 ID。", "Please tell me the schedule ID to delete.")
             elif self.scheduler.delete(rule_id):
-                reply = _t(lang, f"已刪除排程 {rule_id}。", f"Schedule {rule_id} deleted.")
+                reply = _t(lang, "已刪除指定排程。", "Selected schedule deleted.")
             else:
-                reply = _t(lang, f"找不到排程 {rule_id}。", f"Schedule {rule_id} not found.")
+                reply = _t(lang, "找不到指定排程。", "Selected schedule not found.")
             self.memory.add_interaction(clean_input, reply)
             return self._build_result(reply, [], None)
 
@@ -391,12 +507,12 @@ class SmartHomeAgent:
             else:
                 result = self.scheduler.set_enabled(rule_id, op == "enable")
                 if result is None:
-                    reply = _t(lang, f"找不到排程 {rule_id}。", f"Schedule {rule_id} not found.")
+                    reply = _t(lang, "找不到指定排程。", "Selected schedule not found.")
                 else:
                     reply = _t(
                         lang,
-                        f"排程 {rule_id} 已{'啟用' if result else '停用'}。",
-                        f"Schedule {rule_id} {'enabled' if result else 'disabled'}.",
+                        f"排程已{'啟用' if result else '停用'}。",
+                        f"Schedule {'enabled' if result else 'disabled'}.",
                     )
             self.memory.add_interaction(clean_input, reply)
             return self._build_result(reply, [], None)
@@ -408,7 +524,7 @@ class SmartHomeAgent:
             self.memory.save_rule(learned["trigger"], learned["meaning"])
             reply = _t(
                 lang,
-                f"好的，我記住了：當你說「{learned['trigger']}」時，代表「{learned['meaning']}」。",
+                f"好的，我記住了：{learned['trigger']} 代表 {learned['meaning']}",
                 f"Got it! When you say '{learned['trigger']}', it means '{learned['meaning']}'.",
             )
             self.memory.add_interaction(clean_input, reply)

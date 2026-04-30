@@ -75,6 +75,9 @@ Device action schema (execute immediately):
 - {{"type": "FAN", "state": "on"}}
 - {{"type": "LED", "location": "KITCHEN", "state": "off"}}
 
+Rule-learning action schema:
+- {{"type": "LEARN_RULE", "trigger": "我要睡了", "meaning": "全部關燈並關風扇"}}
+
 Schedule action schema (use when user specifies a future or recurring time):
 - {{"type": "SCHEDULE_ADD", "hour": 22, "minute": 0, "name": "22:00 fan on", "actions": [{{"type": "FAN", "state": "on"}}]}}
   Optional date fields for one-time schedules: "year": 2026, "month": 5, "day": 1, "recurrence": "once"
@@ -93,6 +96,7 @@ Rules:
 5. If scheduled time is ambiguous (like "8點" without AM/PM), set intent="unclear" and ask clarification.
 6. If the input is a question, reply directly and keep actions empty.
 7. If the command is ambiguous (non-schedule), set intent to "unclear", ask a clarification question, and keep actions empty.
+7.1 If user is teaching a custom phrase mapping (e.g. "當我說A代表B"), return LEARN_RULE.
 8. Temperature must stay within {int(config.MIN_TEMP)} to {int(config.MAX_TEMP)} Celsius.
 9. Reply must never be empty.
 10. The "reply" field must be written in {reply_lang_instruction}.
