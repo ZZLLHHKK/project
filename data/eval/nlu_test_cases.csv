@@ -19,13 +19,48 @@ N_017,冷氣調到23度,fastpath,"[{""type"":""SET_TEMP"",""value"":23}]",comman
 N_018,空調設定到26度,fastpath,"[{""type"":""SET_TEMP"",""value"":26}]",command,none,temp with hvac keyword
 N_019,風扇打開,fastpath,"[{""type"":""FAN"",""state"":""on""}]",command,none,short fan on
 N_020,風扇關閉,fastpath,"[{""type"":""FAN"",""state"":""off""}]",command,none,short fan off
-N_021,現在溫度幾度,gemini,[],query,none,query temperature
-N_022,請問目前室內溫度是多少,gemini,[],query,none,query temperature formal
-N_023,現在濕度多少,gemini,[],query,none,query humidity
-N_024,今天我家現在狀態怎樣,gemini,[],query,indoor,system status query
-N_025,幫我介紹一下你可以做什麼,gemini,[],query,none,capability query
-N_026,請問客廳燈是不是開著,gemini,[],query,none,state query
-N_027,幫我處理一下,gemini,[],unclear,none,ambiguous command
-N_028,你看著辦,gemini,[],unclear,none,ambiguous command
-N_029,幫我弄舒服一點,gemini,[],unclear,none,vague comfort request
-N_030,我剛剛說什麼,gemini,[],query,none,memory style query
+N_021,溫度調到18度,fastpath,"[{""type"":""SET_TEMP"",""value"":18}]",command,none,boundary min temperature
+N_022,溫度調到30度,fastpath,"[{""type"":""SET_TEMP"",""value"":30}]",command,none,boundary max temperature
+N_023,溫度調到15度,fastpath,"[{""type"":""SET_TEMP"",""value"":18}]",command,none,below min clamped to 18
+N_024,溫度調到35度,fastpath,"[{""type"":""SET_TEMP"",""value"":30}]",command,none,above max clamped to 30
+N_025,可以幫我開客廳的燈嗎,fastpath,"[{""type"":""LED"",""location"":""LIVING"",""state"":""on""}]",command,none,polite phrasing with 可以
+N_026,能不能把風扇打開,fastpath,"[{""type"":""FAN"",""state"":""on""}]",command,none,polite with 能不能
+N_027,把客廳燈開一下,fastpath,"[{""type"":""LED"",""location"":""LIVING"",""state"":""on""}]",command,none,一下 colloquial suffix
+N_028,廚房燈給我關掉,fastpath,"[{""type"":""LED"",""location"":""KITCHEN"",""state"":""off""}]",command,none,給我 colloquial
+N_029,先把風扇關掉,fastpath,"[{""type"":""FAN"",""state"":""off""}]",command,none,先 temporal prefix
+N_030,幫我設定溫度到25度,fastpath,"[{""type"":""SET_TEMP"",""value"":25}]",command,none,設定 keyword variant
+N_031,把溫度設到28度,fastpath,"[{""type"":""SET_TEMP"",""value"":28}]",command,none,設到 variant
+N_032,請開啟廚房的燈,fastpath,"[{""type"":""LED"",""location"":""KITCHEN"",""state"":""on""}]",command,none,開啟 keyword
+N_033,請關閉客廳的燈,fastpath,"[{""type"":""LED"",""location"":""LIVING"",""state"":""off""}]",command,none,關閉 keyword
+N_034,空調調到20度,fastpath,"[{""type"":""SET_TEMP"",""value"":20}]",command,none,空調 keyword variant
+N_035,風扇先開著,fastpath,"[{""type"":""FAN"",""state"":""on""}]",command,none,先開著 variant
+N_036,幫我把客房燈打開,fastpath,"[{""type"":""LED"",""location"":""GUEST"",""state"":""on""}]",command,none,幫我打開 guest room
+N_037,把客廳的燈給我關了,fastpath,"[{""type"":""LED"",""location"":""LIVING"",""state"":""off""}]",command,none,給我關了 colloquial
+N_038,把客房的燈開一下,fastpath,"[{""type"":""LED"",""location"":""GUEST"",""state"":""on""}]",command,none,一下 guest room
+N_039,現在溫度幾度,gemini,[],query,none,query temperature
+N_040,請問目前室內溫度是多少,gemini,[],query,none,query temperature formal
+N_041,現在濕度多少,gemini,[],query,none,query humidity
+N_042,今天我家現在狀態怎樣,gemini,[],query,indoor,system status query
+N_043,幫我介紹一下你可以做什麼,gemini,[],query,none,capability query
+N_044,請問客廳燈是不是開著,gemini,[],query,none,state query
+N_045,幫我處理一下,gemini,[],unclear,none,ambiguous command
+N_046,你看著辦,gemini,[],unclear,none,ambiguous command
+N_047,幫我弄舒服一點,gemini,[],unclear,none,vague comfort request
+N_048,我剛剛說什麼,gemini,[],query,none,memory style query
+N_049,有點熱,gemini,[],unclear,none,vague thermal comfort implies lower temp
+N_050,開客廳跟廚房的燈,gemini,"[{""type"":""LED"",""location"":""KITCHEN"",""state"":""on""},{""type"":""LED"",""location"":""LIVING"",""state"":""on""}]",command,none,multi-device with 跟
+N_051,把客廳和廚房的燈都打開,gemini,"[{""type"":""LED"",""location"":""KITCHEN"",""state"":""on""},{""type"":""LED"",""location"":""LIVING"",""state"":""on""}]",command,none,multi-device with 和
+N_052,當我說睡覺模式就把所有燈和風扇都關掉,gemini,[],rule_learning,none,rule learning trigger
+N_053,把溫度調高一點,gemini,[],command,none,relative temp increase no fixed value
+N_054,幫我把溫度降低兩度,gemini,[],command,none,relative temp decrease by 2
+N_055,開燈,gemini,[],unclear,none,no location specified for light on
+N_056,幫我關掉燈,gemini,[],unclear,none,no location specified for light off
+N_057,你好,gemini,[],chat,none,greeting
+N_058,謝謝你,gemini,[],chat,none,thanks
+N_059,現在幾點,gemini,[],query,none,time query unrelated to devices
+N_060,把溫度調到100度,gemini,[],unclear,none,invalid extreme temperature
+N_061,我想休息了,gemini,[],unclear,none,vague state implication
+N_062,最近有沒有開過燈,gemini,[],query,none,history memory query
+N_063,幫我把環境弄舒服一點,gemini,[],unclear,none,vague environment comfort
+N_064,我要出門了,gemini,[],unclear,none,departure scene implication
+N_065,請問你是誰,gemini,[],query,none,identity query
