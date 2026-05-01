@@ -37,6 +37,8 @@ TEMP_KEYWORDS = (
 NUM_RE = re.compile(r"(-?\d+(?:\.\d+)?)\s*(?:度|°|c|℃)?", re.IGNORECASE)
 _TEMP_WITH_UNIT_RE = re.compile(r"(-?\d+(?:\.\d+)?)\s*(?:度|°|℃)", re.IGNORECASE)
 _TIME_NUM_RE = re.compile(r"\d+\s*(?:點|時|分|秒)")
+_QUESTION_TAIL_RE = re.compile(r"[嗎？?]\s*$")
+_QUESTION_WORDS = ("是否", "有沒有", "對嗎", "是嗎", "嗎", "how many", "what is", "what's")
 
 KW_ON = ("開", "打開", "開啟", "on", "turn on", "open", "start")
 KW_OFF = ("關", "關掉", "關閉", "off", "turn off", "close", "stop")
@@ -207,6 +209,10 @@ class FastPathParser:
             return None
 
         rewritten = self.apply_rules(text, rules or [])
+
+        # 疑問句不應被當成指令執行
+        if _QUESTION_TAIL_RE.search(rewritten) or any(w in rewritten.lower() for w in _QUESTION_WORDS):
+            return None
 
         for parser in (self._parse_temperature, self._parse_all_off, self._parse_fan, self._parse_lights):
             actions = parser(rewritten)

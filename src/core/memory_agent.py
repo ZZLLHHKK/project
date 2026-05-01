@@ -106,11 +106,30 @@ class MemoryAgent:
         rules = self.load_rules()
         for rule in rules:
             if rule.get("trigger") == trigger:
-                return False
+                rule["meaning"] = meaning
+                self.rules_path.write_text(
+                    json.dumps({"rules": rules}, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+                return True
 
         rules.append({"trigger": trigger, "meaning": meaning})
         self.rules_path.write_text(
             json.dumps({"rules": rules}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        return True
+
+    def delete_rule(self, trigger: str) -> bool:
+        trigger = (trigger or "").strip()
+        if not trigger:
+            return False
+        rules = self.load_rules()
+        new_rules = [r for r in rules if r.get("trigger") != trigger]
+        if len(new_rules) == len(rules):
+            return False
+        self.rules_path.write_text(
+            json.dumps({"rules": new_rules}, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
         return True

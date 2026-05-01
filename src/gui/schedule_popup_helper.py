@@ -7,7 +7,7 @@ from tkinter import font as tkfont
 from tkinter import ttk
 from typing import Any, Callable
 
-from src.gui.popup_views import create_panel_popup
+from src.gui.popup_views import create_panel_popup, create_popup_shell
 
 
 def _format_schedule_recurrence(rule: dict[str, Any]) -> str:
@@ -260,6 +260,178 @@ def render_schedule_panel(
     tk.Button(actions_frame, text="Add", command=_add, font=font_normal).pack(side=tk.LEFT, padx=(0, 8))
     tk.Button(actions_frame, text="Delete", command=_delete, font=font_normal).pack(side=tk.LEFT, padx=(0, 8))
     tk.Button(actions_frame, text="Enable/Disable", command=_toggle, font=font_normal).pack(side=tk.LEFT)
+
+
+def render_rules_panel(
+    target: ttk.Frame,
+    *,
+    memory: Any,
+    parent: tk.Misc,
+    font_normal: tkfont.Font,
+    ensure_text: Callable[[Any], str],
+) -> None:
+    """Render the custom rules list with per-rule Delete buttons."""
+    for child in target.winfo_children():
+        child.destroy()
+
+    rules = memory.load_rules()
+
+    summary = tk.Label(
+        target,
+        text=ensure_text(f"共 {len(rules)} 筆自訂規則"),
+        anchor="w",
+        font=font_normal,
+        fg="#475569",
+    )
+    summary.pack(fill=tk.X, pady=(0, 6))
+
+    canvas = tk.Canvas(target, borderwidth=0, highlightthickness=0)
+    scrollbar = ttk.Scrollbar(target, orient="vertical", command=canvas.yview)
+    canvas.configure(yscrollcommand=scrollbar.set)
+    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+    inner = ttk.Frame(canvas)
+    win_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+    def _on_frame_configure(event: Any) -> None:
+        canvas.configure(scrollregion=canvas.bbox("all"))
+
+    def _on_canvas_configure(event: Any) -> None:
+        canvas.itemconfig(win_id, width=event.width)
+
+    inner.bind("<Configure>", _on_frame_configure)
+    canvas.bind("<Configure>", _on_canvas_configure)
+
+    def _refresh() -> None:
+        render_rules_panel(
+            target,
+            memory=memory,
+            parent=parent,
+            font_normal=font_normal,
+            ensure_text=ensure_text,
+        )
+
+    if not rules:
+        tk.Label(inner, text="(目前沒有自訂規則)", anchor="w", font=font_normal, fg="#9ca3af").pack(
+            fill=tk.X, padx=8, pady=4
+        )
+    else:
+        for idx, rule in enumerate(rules):
+            trigger = ensure_text(rule.get("trigger", "")).strip()
+            meaning = ensure_text(rule.get("meaning", "")).strip()
+            row = ttk.Frame(inner)
+            row.pack(fill=tk.X, pady=2, padx=4)
+
+            num_label = tk.Label(row, text=f"{idx + 1:02d}.", font=font_normal, fg="#94a3b8", width=3, anchor="e")
+            num_label.pack(side=tk.LEFT)
+
+            text_label = tk.Label(
+                row,
+                text=f"{trigger}  →  {meaning}",
+                anchor="w",
+                font=font_normal,
+                fg="#0f172a",
+                bg="#f8fafc",
+                relief=tk.SOLID,
+                bd=1,
+                padx=8,
+                pady=4,
+            )
+            text_label.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 8))
+
+            def _make_delete(t: str) -> Callable[[], None]:
+                def _delete() -> None:
+                    if messagebox.askyesno("刪除規則", f"確定要刪除規則「{t}」嗎？", parent=parent):
+                        memory.delete_rule(t)
+                        _refresh()
+                return _delete
+
+            del_btn = tk.Button(
+                row,
+                text="刪除",
+                command=_make_delete(trigger),
+                font=font_normal,
+                bg="#fee2e2",
+                fg="#991b1b",
+                activebackground="#fecaca",
+                activeforeground="#991b1b",
+                relief=tk.GROOVE,
+                bd=1,
+                padx=6,
+            )
+            del_btn.pack(side=tk.RIGHT)
+
+    add_frame = ttk.Frame(target)
+    add_frame.pack(fill=tk.X, pady=(8, 0))
+
+    def _add_rule() -> None:
+        trigger = simpledialog.askstring("新增規則", "觸發詞（你會說的話）：", parent=parent)
+        if not trigger or not trigger.strip():
+            return
+        meaning = simpledialog.askstring("新增規則", f"「{trigger.strip()}」代表什麼動作或語意：", parent=parent)
+        if not meaning or not meaning.strip():
+            return
+        memory.save_rule(trigger.strip(), meaning.strip())
+        _refresh()
+
+    tk.Button(
+        add_frame,
+        text="新增規則",
+        command=_add_rule,
+        font=font_normal,
+        bg="#e8f7ee",
+        fg="#065f46",
+        activebackground="#d1fae5",
+        activeforeground="#065f46",
+        relief=tk.GROOVE,
+        bd=1,
+        padx=8,
+    ).pack(side=tk.LEFT)
+
+
+def open_rules_manager_popup(
+    parent: tk.Misc,
+    memory: Any,
+    *,
+    safe_title: str,
+    font_title: tkfont.Font,
+    font_normal: tkfont.Font,
+    ensure_text: Callable[[Any], str],
+) -> None:
+    """Open an interactive custom rules manager popup with per-rule Delete and Add."""
+    win, outer = create_popup_shell(
+        parent,
+        safe_title=safe_title,
+        heading_text=ensure_text("自訂規則管理"),
+        heading_font=font_title,
+        geometry="560x400",
+        padding=14,
+        resizable=(True, True),
+    )
+
+    content_frame = ttk.Frame(outer)
+    content_frame.pack(fill=tk.BOTH, expand=True)
+    render_rules_panel(
+        content_frame,
+        memory=memory,
+        parent=win,
+        font_normal=font_normal,
+        ensure_text=ensure_text,
+    )
+
+    tk.Button(
+        outer,
+        text=ensure_text("重新整理"),
+        font=font_normal,
+        command=lambda: render_rules_panel(
+            content_frame,
+            memory=memory,
+            parent=win,
+            font_normal=font_normal,
+            ensure_text=ensure_text,
+        ),
+    ).pack(pady=(8, 0))
 
 
 def open_schedule_manager_popup(

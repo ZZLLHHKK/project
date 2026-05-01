@@ -445,6 +445,25 @@ class SmartHomeAgent:
         clear_zh = ("清除記憶", "重置記憶", "清記憶")
         clear_en = ("clear memory", "reset memory", "forget everything", "clear history")
 
+        # 規則學習必須在排程解析之前，避免含時間詞的學習句被誤判為排程指令
+        learned = self.fastpath.try_learn_rule(clean_input)
+        if learned is not None:
+            ok = self.memory.save_rule(learned["trigger"], learned["meaning"])
+            if ok:
+                reply = _t(
+                    lang,
+                    f"好的，我記住了：{learned['trigger']} 代表 {learned['meaning']}",
+                    f"Got it! When you say '{learned['trigger']}', it means '{learned['meaning']}'.",
+                )
+            else:
+                reply = _t(
+                    lang,
+                    f"好的，已更新：{learned['trigger']} 代表 {learned['meaning']}",
+                    f"Updated: '{learned['trigger']}' now means '{learned['meaning']}'.",
+                )
+            self.memory.add_interaction(clean_input, reply)
+            return self._build_result(reply, [], None)
+
         # Step 3: schedule fastpath minimal CRUD
         # 1. add
         parsed_add = self.schedule_parser.parse_add(clean_input)
@@ -517,19 +536,6 @@ class SmartHomeAgent:
                         f"排程已{'啟用' if result else '停用'}。",
                         f"Schedule {'enabled' if result else 'disabled'}.",
                     )
-            self.memory.add_interaction(clean_input, reply)
-            return self._build_result(reply, [], None)
-
-        # ...existing code...
-
-        learned = self.fastpath.try_learn_rule(clean_input)
-        if learned is not None:
-            self.memory.save_rule(learned["trigger"], learned["meaning"])
-            reply = _t(
-                lang,
-                f"好的，我記住了：{learned['trigger']} 代表 {learned['meaning']}",
-                f"Got it! When you say '{learned['trigger']}', it means '{learned['meaning']}'.",
-            )
             self.memory.add_interaction(clean_input, reply)
             return self._build_result(reply, [], None)
 

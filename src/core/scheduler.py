@@ -145,7 +145,8 @@ class ScheduleManager:
         minute: int,
         new_actions: list[dict[str, Any]],
     ) -> bool:
-        new_devices = {action.get("type") for action in new_actions}
+        # 用 _action_key 區分 LED_KITCHEN / LED_LIVING / LED_GUEST，避免不同房間被誤判衝突
+        new_keys = {self._action_key(action) for action in new_actions}
 
         for rule in rules:
             if not rule.get("enabled", True):
@@ -159,8 +160,8 @@ class ScheduleManager:
             if day is not None and rule.get("day") != day:
                 continue
 
-            existing_devices = {action.get("type") for action in rule.get("actions", [])}
-            if new_devices & existing_devices:
+            existing_keys = {self._action_key(action) for action in rule.get("actions", [])}
+            if new_keys & existing_keys:
                 return True
 
         return False
@@ -184,18 +185,20 @@ class ScheduleManager:
 
     def block_devices(self, actions: list[dict[str, Any]], duration_seconds: int = 60) -> None:
         until = time.time() + duration_seconds
-        for action in actions:
-            self._user_overrides[self._action_key(action)] = until
+        with self._lock:
+            for action in actions:
+                self._user_overrides[self._action_key(action)] = until
 
     def _is_device_blocked(self, action: dict[str, Any]) -> bool:
         key = self._action_key(action)
-        until = self._user_overrides.get(key)
-        if until is None:
-            return False
-        if time.time() >= until:
-            del self._user_overrides[key]
-            return False
-        return True
+        with self._lock:
+            until = self._user_overrides.get(key)
+            if until is None:
+                return False
+            if time.time() >= until:
+                del self._user_overrides[key]
+                return False
+            return True
 
     def list_all(self) -> list[dict[str, Any]]:
         return self._read()

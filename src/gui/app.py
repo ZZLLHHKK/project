@@ -3,7 +3,10 @@ from __future__ import annotations
 import json
 import os
 import locale
-import audioop
+try:
+    import audioop as _audioop
+except ModuleNotFoundError:
+    _audioop = None  # type: ignore[assignment]
 import subprocess
 import time
 import threading
@@ -41,7 +44,7 @@ def _speak_async(
     t.start()
 
 from src.gui.popup_views import create_panel_popup, create_text_popup
-from src.gui.schedule_popup_helper import open_schedule_manager_popup
+from src.gui.schedule_popup_helper import open_schedule_manager_popup, open_rules_manager_popup
 from src.core.scheduler_runtime import SchedulerRuntime
 from src.runtime import build_runtime
 from src.services.gui_command_service import GuiCommandPresentation, execute_gui_text_command, format_reply_for_language
@@ -133,9 +136,10 @@ I18N: dict[str, dict[str, str]] = {
         "lang": "語言",
         "reply": "回覆",
         "coming_soon": "此功能尚未接上，先保留介面位置。",
-        "habits_hint": "檢視已學習規則。",
+        "habits_hint": "管理已學習規則（可新增與刪除）。",
         "habits_empty": "目前沒有已學習規則",
         "habits_rules": "已學習規則",
+        "rules_manager": "規則管理",
         "chat_hint": "按 Enter 或點送出即可對話。",
     },
     "en": {
@@ -202,9 +206,10 @@ I18N: dict[str, dict[str, str]] = {
         "lang": "Language",
         "reply": "Reply",
         "coming_soon": "This feature is not wired yet. The slot is reserved in the UI.",
-        "habits_hint": "View learned rules.",
+        "habits_hint": "Manage learned rules (add & delete).",
         "habits_empty": "No learned rules yet",
         "habits_rules": "Learned Rules",
+        "rules_manager": "Rules Manager",
         "chat_hint": "Press Enter or click Send to chat.",
     },
 }
@@ -1002,7 +1007,7 @@ class DashboardApp(tk.Tk):
         self._set_status(self.tr("waiting_wake_word"), self.tr("waiting_wake_word_detail"))
 
     def _detect_wake_by_energy(self, timeout_seconds: int = 3) -> bool:
-        if self._speech is None:
+        if self._speech is None or _audioop is None:
             return False
         device = getattr(self._speech, "device", "default")
         cmd = [
@@ -1024,7 +1029,7 @@ class DashboardApp(tk.Tk):
                 data = proc.stdout.read(chunk_bytes)
                 if not data:
                     break
-                if audioop.rms(data, 2) >= threshold:
+                if _audioop.rms(data, 2) >= threshold:
                     activated = True
                     break
         finally:
@@ -1159,7 +1164,14 @@ class DashboardApp(tk.Tk):
         )
 
     def _open_habits(self) -> None:
-        self._open_text_window(self._ensure_text(self.tr("habits")), self._format_habits_content())
+        open_rules_manager_popup(
+            self,
+            self.memory,
+            safe_title=self._safe_child_title_text(self._ensure_text(self.tr("rules_manager"))),
+            font_title=self.font_title,
+            font_normal=self.font_normal,
+            ensure_text=self._ensure_text,
+        )
 
     def _open_text_window(self, title: str, content: str) -> None:
         create_text_popup(
