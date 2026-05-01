@@ -74,7 +74,14 @@ def _format_schedule_line(idx: int, rule: dict[str, Any]) -> str:
     minute = int(rule.get("minute", 0))
     recurrence = _format_schedule_recurrence(rule)
     action_text = _format_schedule_action_summary(rule)
-    return f"{idx}. {recurrence} {hour:02d}:{minute:02d} {action_text}".strip()
+    rule_id = str(rule.get("id") or "-")
+    enabled = bool(rule.get("enabled", True))
+    status = "ON" if enabled else "OFF"
+    return (
+        f"{idx:02d}. [{status}] {recurrence} {hour:02d}:{minute:02d}\n"
+        f"    {action_text}\n"
+        f"    ID: {rule_id}"
+    ).strip()
 
 
 def parse_add_payload(
@@ -139,8 +146,29 @@ def render_schedule_panel(
         child.destroy()
 
     rules = scheduler.list_all()
-    body = tk.Text(target, height=14, wrap=tk.WORD, font=font_mono)
+    summary = tk.Label(
+        target,
+        text=f"共 {len(rules)} 筆排程，使用 ID 可精準刪除與啟用/停用",
+        anchor="w",
+        font=font_normal,
+        fg="#475569",
+    )
+    summary.pack(fill=tk.X, pady=(0, 6))
+
+    body = tk.Text(
+        target,
+        height=14,
+        wrap=tk.WORD,
+        font=font_mono,
+        bg="#ffffff",
+        fg="#0f172a",
+        relief=tk.SOLID,
+        bd=1,
+        padx=10,
+        pady=8,
+    )
     body.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
+    body.tag_configure("item", spacing1=3, spacing3=8)
 
     if not rules:
         body.insert("1.0", "(no schedules)")
@@ -148,7 +176,7 @@ def render_schedule_panel(
         lines: list[str] = []
         for idx, rule in enumerate(rules, start=1):
             lines.append(_format_schedule_line(idx, rule))
-        body.insert("1.0", "\n".join(lines))
+        body.insert("1.0", "\n\n".join(lines), "item")
     body.configure(state=tk.DISABLED)
 
     actions_frame = ttk.Frame(target)

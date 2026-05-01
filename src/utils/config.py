@@ -78,6 +78,26 @@ TTS_ENABLED = os.getenv(
     "1",
 ).strip() not in ("0", "false", "False", "OFF", "off")
 
+# -------------------------
+# Voice tuning
+# -------------------------
+# Start recording/transcribing when energy rises above this threshold.
+VOICE_THRESHOLD_START = int(os.getenv("VOICE_THRESHOLD_START", "650"))
+# Consider speech ended when energy stays below this threshold.
+VOICE_THRESHOLD_END = int(os.getenv("VOICE_THRESHOLD_END", "400"))
+# Continuous silence duration (seconds) required to stop capture.
+VOICE_SILENCE_TIMEOUT_SEC = float(os.getenv("VOICE_SILENCE_TIMEOUT_SEC", "1.2"))
+# Minimum speech duration (seconds) to accept a capture as valid input.
+VOICE_MIN_SPEECH_DURATION_SEC = float(os.getenv("VOICE_MIN_SPEECH_DURATION_SEC", "0.25"))
+# Energy threshold for wakeword fallback mode (non-Porcupine path).
+VOICE_WAKE_FALLBACK_THRESHOLD = int(os.getenv("VOICE_WAKE_FALLBACK_THRESHOLD", "800"))
+# Short pause after empty/failed attempts to avoid busy retry loops.
+VOICE_RETRY_BACKOFF_SEC = float(os.getenv("VOICE_RETRY_BACKOFF_SEC", "0.5"))
+
+# Voice-only GUI mode
+VOICE_ONLY_MODE = os.getenv("VOICE_ONLY_MODE", "1").strip() not in ("0", "false", "False", "OFF", "off")
+SHOW_DEBUG_TEXT_INPUT = os.getenv("SHOW_DEBUG_TEXT_INPUT", "0").strip() not in ("0", "false", "False", "OFF", "off")
+
 # Desktop test defaults
 DESKTOP_AMBIENT_TEMP = int(os.getenv("DESKTOP_AMBIENT_TEMP", "26"))
 DESKTOP_AMBIENT_HUMIDITY = int(os.getenv("DESKTOP_AMBIENT_HUMIDITY", "60"))

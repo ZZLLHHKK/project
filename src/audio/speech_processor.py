@@ -11,8 +11,9 @@ import sys
 import subprocess
 import os
 import shutil
+import math
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 # 確保專案根目錄在 sys.path 中（直接執行本檔時需要）
 _PROJECT_ROOT = str(Path(__file__).resolve().parent.parent.parent)
@@ -25,6 +26,10 @@ from src.utils.config import (
     RECORDING_DURATION,
     LANGUAGE,
     RECORDINGS_DIR,
+    VOICE_MIN_SPEECH_DURATION_SEC,
+    VOICE_SILENCE_TIMEOUT_SEC,
+    VOICE_THRESHOLD_END,
+    VOICE_THRESHOLD_START,
 )
 from src.utils.tts import speak  # ← 嘴巴功能直接使用現有 TTS
 
@@ -39,11 +44,22 @@ class SpeechProcessor:
         Path(RECORDINGS_DIR).mkdir(parents=True, exist_ok=True)
 
     # ====================== 耳朵（輸入） ======================
-    def speech_to_text(self, duration: Optional[int] = None, language: str = LANGUAGE) -> str:
+    def speech_to_text(
+        self,
+        duration: Optional[int] = None,
+        language: str = LANGUAGE,
+        on_transcribe_start: Optional[Callable[[], None]] = None,
+    ) -> str:
         """完整流程：錄音 → Whisper 轉文字 → 只回傳文字（不寫檔）"""
         wav_path = self._record_audio(duration)
         if not wav_path:
             return ""
+
+        if callable(on_transcribe_start):
+            try:
+                on_transcribe_start()
+            except Exception:
+                pass
 
         text = self._transcribe(wav_path, language)
         print(f"👤 [你說]: {text}")   # 給使用者即時回饋
@@ -98,10 +114,12 @@ class SpeechProcessor:
         max_seconds = duration or self.default_duration
         RATE = 16000
         CHUNK = 1600          # 0.1 秒
-        BYTES_PER_CHUNK = CHUNK * 2  
-        ENERGY_THRESH = 500
-        SILENCE_CHUNKS = 10   # 靜音超過 1.0 秒就停
-        MIN_SPEECH_CHUNKS = 2
+        BYTES_PER_CHUNK = CHUNK * 2
+        chunk_seconds = CHUNK / RATE
+        ENERGY_THRESHOLD_START = VOICE_THRESHOLD_START
+        ENERGY_THRESHOLD_END = VOICE_THRESHOLD_END
+        SILENCE_CHUNKS = max(1, math.ceil(VOICE_SILENCE_TIMEOUT_SEC / chunk_seconds))
+        MIN_SPEECH_CHUNKS = max(1, math.ceil(VOICE_MIN_SPEECH_DURATION_SEC / chunk_seconds))
 
         cmd = [
             "arecord", "-D", self.device,
@@ -128,13 +146,15 @@ class SpeechProcessor:
                 samples = np.frombuffer(data, dtype=np.int16)
                 energy = float(np.sqrt(np.mean(samples.astype(np.float32) ** 2)))
 
-                if energy > ENERGY_THRESH:
+                if energy >= ENERGY_THRESHOLD_START:
                     speech_count += 1
                     silence_count = 0
-                elif speech_count > 0:
+                elif speech_count > 0 and energy <= ENERGY_THRESHOLD_END:
                     silence_count += 1
                     if silence_count >= SILENCE_CHUNKS and speech_count >= MIN_SPEECH_CHUNKS:
                         break
+                elif speech_count > 0:
+                    silence_count = 0
         finally:
             proc.terminate()
             proc.wait()

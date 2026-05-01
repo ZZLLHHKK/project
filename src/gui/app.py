@@ -21,9 +21,22 @@ except Exception:
         pass
 
 
-def _speak_async(text: str) -> None:
+def _speak_async(
+    text: str,
+    on_start: callable | None = None,
+    on_done: callable | None = None,
+) -> None:
     """在背景執行緒播放 TTS，不阻塞 GUI 主執行緒。"""
-    t = threading.Thread(target=_tts_speak, args=(text,), daemon=True)
+    def _runner() -> None:
+        if callable(on_start):
+            on_start()
+        try:
+            _tts_speak(text)
+        finally:
+            if callable(on_done):
+                on_done()
+
+    t = threading.Thread(target=_runner, daemon=True)
     t.start()
 
 from src.gui.popup_views import create_panel_popup, create_text_popup
@@ -32,7 +45,16 @@ from src.core.scheduler_runtime import SchedulerRuntime
 from src.runtime import build_runtime
 from src.services.gui_command_service import GuiCommandPresentation, execute_gui_text_command, format_reply_for_language
 from src.services.gui_state_service import display_location, display_state_value, format_device_state_content, format_queue_content
-from src.utils.config import DATA_DIR, RULES_FILE, SPEECH_ENABLED, WAKEWORD_ENABLED
+from src.utils.config import (
+    DATA_DIR,
+    RULES_FILE,
+    SHOW_DEBUG_TEXT_INPUT,
+    SPEECH_ENABLED,
+    VOICE_ONLY_MODE,
+    VOICE_RETRY_BACKOFF_SEC,
+    VOICE_WAKE_FALLBACK_THRESHOLD,
+    WAKEWORD_ENABLED,
+)
 
 try:
     from src.audio.speech_processor import SpeechProcessor
@@ -49,15 +71,26 @@ I18N: dict[str, dict[str, str]] = {
     "zh": {
         "title": "智慧家庭控制台",
         "system_ready": "系統已啟動，隨時可叫我",
-        "idle": "閒置當中",
-        "processing": "處理中",
-        "waiting_wake_word": "等待喚醒詞...",
-        "listening": "聆聽中...",
-        "ready_detail": "系統已準備完成，可以直接輸入命令。",
-        "processing_detail": "正在分析你的指令並產生回應。",
-        "waiting_wake_word_detail": "語音系統待機中，請先喚醒。",
-        "listening_detail": "已喚醒，正在聆聽正式指令。",
+        "idle": "Idle",
+        "processing": "Thinking...",
+        "speaking": "Speaking...",
+        "waiting_wake_word": "Waiting for wake word...",
+        "listening": "Listening...",
+        "ready_detail": "Idle",
+        "processing_detail": "Thinking...",
+        "speaking_detail": "Speaking...",
+        "waiting_wake_word_detail": "Waiting for wake word...",
+        "listening_detail": "Listening...",
         "status_prefix": "狀態",
+        "voice_mode_title": "Voice Mode",
+        "debug_mode_title": "Debug Mode",
+        "debug_input_toggle": "Debug Input",
+        "mic_prefix": "Mic:",
+        "mic_ready": "Ready",
+        "mic_disabled": "Disabled",
+        "debug_input_prefix": "Debug input:",
+        "debug_input_enabled": "Enabled",
+        "debug_input_hidden": "Hidden",
         "input_label": "輸入命令",
         "send": "送出",
         "conversation": "對話紀錄",
@@ -67,6 +100,11 @@ I18N: dict[str, dict[str, str]] = {
         "dashboard": "控制面板",
         "clock": "目前時間",
         "device_state": "家具狀態",
+        "quick_actions": "快捷操作",
+        "quick_all_lights_on": "全部開燈",
+        "quick_all_lights_off": "全部關燈",
+        "quick_reset_state": "重置家具狀態",
+        "quick_return_idle": "回到 Idle",
         "temperature": "設定溫度",
         "fan": "風扇",
         "light": "燈光",
@@ -103,14 +141,25 @@ I18N: dict[str, dict[str, str]] = {
         "title": "Smart Home Console",
         "system_ready": "System is ready. You can wake me anytime.",
         "idle": "Idle",
-        "processing": "Processing",
+        "processing": "Thinking...",
+        "speaking": "Speaking...",
         "waiting_wake_word": "Waiting for wake word...",
         "listening": "Listening...",
-        "ready_detail": "The system is ready. You can type a command now.",
-        "processing_detail": "Analyzing your command and preparing a reply.",
-        "waiting_wake_word_detail": "Voice system is idle and waiting for wake word.",
-        "listening_detail": "Wake word detected, listening for command.",
+        "ready_detail": "Idle",
+        "processing_detail": "Thinking...",
+        "speaking_detail": "Speaking...",
+        "waiting_wake_word_detail": "Waiting for wake word...",
+        "listening_detail": "Listening...",
         "status_prefix": "Status",
+        "voice_mode_title": "Voice Mode",
+        "debug_mode_title": "Debug Mode",
+        "debug_input_toggle": "Debug Input",
+        "mic_prefix": "Mic:",
+        "mic_ready": "Ready",
+        "mic_disabled": "Disabled",
+        "debug_input_prefix": "Debug input:",
+        "debug_input_enabled": "Enabled",
+        "debug_input_hidden": "Hidden",
         "input_label": "Command",
         "send": "Send",
         "conversation": "Conversation",
@@ -120,6 +169,11 @@ I18N: dict[str, dict[str, str]] = {
         "dashboard": "Dashboard",
         "clock": "Current Time",
         "device_state": "Device States",
+        "quick_actions": "Quick Actions",
+        "quick_all_lights_on": "All Lights On",
+        "quick_all_lights_off": "All Lights Off",
+        "quick_reset_state": "Reset Device State",
+        "quick_return_idle": "Return to Idle",
         "temperature": "Set Temperature",
         "fan": "Fan",
         "light": "Lights",
@@ -176,6 +230,8 @@ class DashboardApp(tk.Tk):
         self.chat_limit = 20
         self.lang = tk.StringVar(value="zh")
         self.current_status = tk.StringVar(value="")
+        self.voice_mode_text = tk.StringVar(value="")
+        self.debug_mode_text = tk.StringVar(value="")
         self.time_text = tk.StringVar(value="")
         self.command_text = tk.StringVar(value="")
         self.reply_text = tk.StringVar(value="")
@@ -189,6 +245,11 @@ class DashboardApp(tk.Tk):
         self.chat_history: list[tuple[str, str]] = []
         self.speech_enabled = bool(SPEECH_ENABLED)
         self.wakeword_enabled = bool(WAKEWORD_ENABLED)
+        self.voice_only_mode = bool(VOICE_ONLY_MODE)
+        self.show_debug_text_input = bool(SHOW_DEBUG_TEXT_INPUT)
+        self._text_input_visible = (not self.voice_only_mode) or self.show_debug_text_input
+        self._force_waiting_requested = False
+        self._discard_next_result = False
         self._voice_stop_event = threading.Event()
         self._voice_thread: threading.Thread | None = None
         self._speech = None
@@ -200,14 +261,33 @@ class DashboardApp(tk.Tk):
                 self._speech = None
                 self.speech_enabled = False
         self.ui_font_size = 11
+        self.colors = {
+            "app_bg": "#eef2f7",
+            "panel_bg": "#f8fafc",
+            "card_bg": "#ffffff",
+            "card_border": "#dbe4ee",
+            "text_primary": "#0f172a",
+            "text_secondary": "#475569",
+            "hint": "#64748b",
+            "warning": "#b45309",
+            "user": "#1d4ed8",
+            "assistant": "#047857",
+            "system": "#b45309",
+        }
         self.zh_font_family, self.en_font_family = self._resolve_font_families()
         self.has_cjk_font = self.zh_font_family not in {"DejaVu Sans", "Noto Sans", "Liberation Sans", "Arial", "Helvetica", "Ubuntu"}
         self._active_font_family = self.zh_font_family if self.lang.get() == "zh" else self.en_font_family
         self._build_fonts()
 
         self._set_window_title()
-        self.geometry("1040x620")
+        self.geometry("1100x700+100+100")
         self.minsize(900, 540)
+        self.configure(bg=self.colors["app_bg"])
+        self.deiconify()
+        self.lift()
+        self.focus_force()
+        self.update_idletasks()  # force window manager to process show event
+        print("[GUI] window visible")
 
         self._build_layout()
         self._set_boot_status()
@@ -326,10 +406,20 @@ class DashboardApp(tk.Tk):
             getattr(self, "system_title", None),
             getattr(self, "lang_label", None),
             getattr(self, "status_label", None),
+            getattr(self, "voice_mode_title_label", None),
+            getattr(self, "voice_mode_value_label", None),
+            getattr(self, "debug_mode_title_label", None),
+            getattr(self, "debug_mode_value_label", None),
+            getattr(self, "debug_toggle_btn", None),
             getattr(self, "entry_input", None),
             getattr(self, "send_btn", None),
             getattr(self, "chat_box", None),
             getattr(self, "clock_label", None),
+            getattr(self, "quick_actions_frame", None),
+            getattr(self, "qa_lights_on_btn", None),
+            getattr(self, "qa_lights_off_btn", None),
+            getattr(self, "qa_reset_state_btn", None),
+            getattr(self, "qa_return_idle_btn", None),
             getattr(self, "device_btn", None),
             getattr(self, "habits_btn", None),
             getattr(self, "queue_btn", None),
@@ -373,16 +463,62 @@ class DashboardApp(tk.Tk):
         self._render_chat_history()
 
     def _focus_input(self) -> None:
-        if hasattr(self, "entry_input"):
+        if self._text_input_visible and hasattr(self, "entry_input"):
             self.entry_input.focus_set()
+
+    def _update_voice_mode_indicator(self, state_text: str | None = None) -> None:
+        prefix = self._ensure_text(self.tr("mic_prefix"))
+        if not self.speech_enabled:
+            self.voice_mode_text.set(f"{prefix} {self._ensure_text(self.tr('mic_disabled'))}")
+            return
+
+        target_state = state_text or ""
+        if target_state == self.tr("idle"):
+            target_state = self._ensure_text(self.tr("mic_ready"))
+        elif not target_state:
+            target_state = self._ensure_text(self.tr("mic_ready"))
+
+        self.voice_mode_text.set(f"{prefix} {self._ensure_text(target_state)}")
+
+    def _update_debug_mode_indicator(self) -> None:
+        prefix = self._ensure_text(self.tr("debug_input_prefix"))
+        value = self.tr("debug_input_enabled") if self._text_input_visible else self.tr("debug_input_hidden")
+        self.debug_mode_text.set(f"{self._ensure_text(prefix)} {self._ensure_text(value)}")
+
+    def _set_text_input_visibility(self, visible: bool) -> None:
+        self._text_input_visible = bool(visible)
+        if self._text_input_visible:
+            if self.cmd_frame.winfo_manager() == "":
+                self.cmd_frame.pack(fill=tk.X, before=self.conversation_frame)
+            self.send_btn.configure(state=tk.NORMAL)
+            self.entry_input.configure(state=tk.NORMAL)
+            self._focus_input()
+        else:
+            if self.cmd_frame.winfo_manager() != "":
+                self.cmd_frame.pack_forget()
+        self._update_debug_mode_indicator()
+
+    def _toggle_debug_input(self) -> None:
+        self._set_text_input_visibility(not self._text_input_visible)
 
     def _set_status(self, state_text: str, detail_text: str) -> None:
         full_status = f"{self.tr('status_prefix')}: {state_text}"
         self.current_status.set(full_status)
-        self.status_label.configure(text=full_status)
-        self.status_detail_label.configure(text=self._ensure_text(detail_text))
+        status_palette = {
+            self.tr("idle"): ("#0f766e", "#ccfbf1"),
+            self.tr("processing"): ("#1d4ed8", "#dbeafe"),
+            self.tr("speaking"): ("#b45309", "#ffedd5"),
+            self.tr("waiting_wake_word"): ("#7c3aed", "#ede9fe"),
+            self.tr("listening"): ("#047857", "#d1fae5"),
+        }
+        fg, bg = status_palette.get(state_text, (self.colors["text_primary"], "#e2e8f0"))
+        self.status_label.configure(text=full_status, fg=fg, bg=bg, padx=10, pady=4)
+        self.status_detail_label.configure(text=self._ensure_text(detail_text), fg=self.colors["text_secondary"], bg=self.colors["panel_bg"])
+        self._update_voice_mode_indicator(state_text)
 
     def _set_input_enabled(self, enabled: bool) -> None:
+        if not self._text_input_visible:
+            return
         state = tk.NORMAL if enabled else tk.DISABLED
         self.send_btn.configure(state=state)
         self.entry_input.configure(state=state)
@@ -402,7 +538,11 @@ class DashboardApp(tk.Tk):
         self.reply_text.set(result.formatted_reply)
         self._append_chat_message(self.tr("assistant"), result.formatted_reply)
         if result.should_speak and result.spoken_reply:
-            _speak_async(result.spoken_reply)
+            _speak_async(
+                result.spoken_reply,
+                on_start=lambda: self.after(0, lambda: self._set_status(self.tr("speaking"), self.tr("speaking_detail"))),
+                on_done=lambda: self.after(0, lambda: self._set_status(self.tr("idle"), self.tr("ready_detail"))),
+            )
 
     def _render_chat_history(self) -> None:
         if not hasattr(self, "chat_box"):
@@ -427,12 +567,12 @@ class DashboardApp(tk.Tk):
         self.chat_box.see(tk.END)
 
     def _configure_chat_tags(self) -> None:
-        self.chat_box.tag_configure("speaker_user", foreground="#1d4ed8", font=self.font_chat_speaker, spacing1=4)
-        self.chat_box.tag_configure("body_user", foreground="#0f172a", lmargin1=18, lmargin2=18, spacing3=8)
-        self.chat_box.tag_configure("speaker_assistant", foreground="#047857", font=self.font_chat_speaker, spacing1=4)
-        self.chat_box.tag_configure("body_assistant", foreground="#111827", lmargin1=18, lmargin2=18, spacing3=8)
-        self.chat_box.tag_configure("speaker_system", foreground="#b45309", font=self.font_chat_speaker, spacing1=4)
-        self.chat_box.tag_configure("body_system", foreground="#78350f", lmargin1=18, lmargin2=18, spacing3=8)
+        self.chat_box.tag_configure("speaker_user", foreground=self.colors["user"], font=self.font_chat_speaker, spacing1=8)
+        self.chat_box.tag_configure("body_user", foreground=self.colors["text_primary"], background="#eff6ff", lmargin1=16, lmargin2=16, rmargin=14, spacing3=10)
+        self.chat_box.tag_configure("speaker_assistant", foreground=self.colors["assistant"], font=self.font_chat_speaker, spacing1=8)
+        self.chat_box.tag_configure("body_assistant", foreground=self.colors["text_primary"], background="#ecfdf5", lmargin1=16, lmargin2=16, rmargin=14, spacing3=10)
+        self.chat_box.tag_configure("speaker_system", foreground=self.colors["system"], font=self.font_chat_speaker, spacing1=8)
+        self.chat_box.tag_configure("body_system", foreground="#78350f", background="#fffbeb", lmargin1=16, lmargin2=16, rmargin=14, spacing3=10)
 
     def _format_device_state_content(self) -> str:
         return format_device_state_content(self.state.get_state(), self.tr, self._ensure_text)
@@ -441,52 +581,123 @@ class DashboardApp(tk.Tk):
         return format_queue_content(self._read_schedule_queue(), self.tr, self._ensure_text)
 
     def _build_layout(self) -> None:
-        wrapper = ttk.Frame(self, padding=12)
+        wrapper = tk.Frame(self, bg=self.colors["app_bg"], padx=12, pady=12)
         wrapper.pack(fill=tk.BOTH, expand=True)
 
-        top_bar = ttk.Frame(wrapper)
+        top_bar = tk.Frame(wrapper, bg=self.colors["app_bg"])
         top_bar.pack(fill=tk.X)
 
-        self.system_title = tk.Label(top_bar, text=self._ensure_text(self.tr("system_ready")), anchor="w", font=self.font_title)
+        self.system_title = tk.Label(
+            top_bar,
+            text=self._ensure_text(self.tr("system_ready")),
+            anchor="w",
+            font=self.font_title,
+            bg=self.colors["app_bg"],
+            fg=self.colors["text_primary"],
+        )
         self.system_title.pack(side=tk.LEFT)
 
-        lang_group = ttk.Frame(top_bar)
+        lang_group = tk.Frame(top_bar, bg=self.colors["app_bg"])
         lang_group.pack(side=tk.RIGHT)
-        self.lang_label = tk.Label(lang_group, text=f"{self._ensure_text(self.tr('lang'))}: ", font=self.font_normal)
+        self.lang_label = tk.Label(lang_group, text=f"{self._ensure_text(self.tr('lang'))}: ", font=self.font_normal, bg=self.colors["app_bg"], fg=self.colors["text_secondary"])
         self.lang_label.pack(side=tk.LEFT)
         lang_picker = ttk.Combobox(lang_group, textvariable=self.lang, values=["zh", "en"], width=6, state="readonly")
         lang_picker.pack(side=tk.LEFT)
         lang_picker.bind("<<ComboboxSelected>>", self._on_language_change)
 
-        body = ttk.Frame(wrapper)
+        body = tk.Frame(wrapper, bg=self.colors["app_bg"])
         body.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
         body.columnconfigure(0, weight=3)
         body.columnconfigure(1, weight=2)
         body.rowconfigure(0, weight=1)
 
-        left = ttk.Frame(body, padding=(0, 0, 10, 0))
+        left = tk.Frame(body, bg=self.colors["panel_bg"], highlightbackground=self.colors["card_border"], highlightthickness=1, padx=12, pady=12)
         left.grid(row=0, column=0, sticky="nsew")
 
-        self.status_label = tk.Label(left, text="", anchor="w", font=self.font_status)
+        self.status_label = tk.Label(left, text="", anchor="w", font=self.font_status, bg="#e2e8f0", fg=self.colors["text_primary"])
         self.status_label.pack(anchor="w", pady=(0, 12))
 
-        self.status_detail_label = tk.Label(left, text="", anchor="w", justify=tk.LEFT, fg="#475569", font=self.font_normal)
+        self.status_detail_label = tk.Label(left, text="", anchor="w", justify=tk.LEFT, fg=self.colors["text_secondary"], bg=self.colors["panel_bg"], font=self.font_normal)
         self.status_detail_label.pack(anchor="w", pady=(0, 10))
 
-        self.font_notice_label = tk.Label(left, text="", anchor="w", fg="#b45309", font=self.font_normal)
+        self.font_notice_label = tk.Label(left, text="", anchor="w", fg=self.colors["warning"], bg=self.colors["panel_bg"], font=self.font_normal)
         self.font_notice_label.pack(anchor="w", pady=(0, 8))
 
-        self.chat_hint_label = tk.Label(left, text=self._ensure_text(self.tr("chat_hint")), anchor="w", fg="#475569", font=self.font_normal)
+        self.chat_hint_label = tk.Label(left, text=self._ensure_text(self.tr("chat_hint")), anchor="w", fg=self.colors["hint"], bg=self.colors["panel_bg"], font=self.font_normal)
         self.chat_hint_label.pack(anchor="w", pady=(0, 8))
 
-        cmd_frame = ttk.LabelFrame(left, text=self.tr("input_label"), padding=10)
-        cmd_frame.pack(fill=tk.X)
-        self.entry_input = tk.Entry(cmd_frame, textvariable=self.command_text, font=self.font_normal)
+        self.voice_mode_title_label = tk.Label(
+            left,
+            text=self._ensure_text(self.tr("voice_mode_title")),
+            anchor="w",
+            fg=self.colors["text_secondary"],
+            bg=self.colors["panel_bg"],
+            font=self.font_normal,
+        )
+        self.voice_mode_title_label.pack(anchor="w")
+        self.voice_mode_value_label = tk.Label(
+            left,
+            textvariable=self.voice_mode_text,
+            anchor="w",
+            fg=self.colors["text_primary"],
+            bg=self.colors["panel_bg"],
+            font=self.font_normal,
+        )
+        self.voice_mode_value_label.pack(anchor="w", pady=(0, 6))
+
+        self.debug_mode_title_label = tk.Label(
+            left,
+            text=self._ensure_text(self.tr("debug_mode_title")),
+            anchor="w",
+            fg=self.colors["text_secondary"],
+            bg=self.colors["panel_bg"],
+            font=self.font_normal,
+        )
+        self.debug_mode_title_label.pack(anchor="w")
+        self.debug_mode_value_label = tk.Label(
+            left,
+            textvariable=self.debug_mode_text,
+            anchor="w",
+            fg=self.colors["text_primary"],
+            bg=self.colors["panel_bg"],
+            font=self.font_normal,
+        )
+        self.debug_mode_value_label.pack(anchor="w", pady=(0, 6))
+
+        self.debug_toggle_btn = tk.Button(
+            left,
+            text=self._ensure_text(self.tr("debug_input_toggle")),
+            command=self._toggle_debug_input,
+            font=self.font_normal,
+            relief=tk.GROOVE,
+            bd=1,
+            bg="#ffffff",
+            fg="#0f172a",
+            activebackground="#f1f5f9",
+            activeforeground="#0f172a",
+            padx=8,
+        )
+        self.debug_toggle_btn.pack(anchor="w", pady=(0, 8))
+
+        self.cmd_frame = ttk.LabelFrame(left, text=self.tr("input_label"), padding=10)
+        self.entry_input = tk.Entry(self.cmd_frame, textvariable=self.command_text, font=self.font_normal)
         self.entry_input.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.entry_input.bind("<Return>", self._on_send)
 
-        self.send_btn = tk.Button(cmd_frame, text=self._ensure_text(self.tr("send")), command=self._on_send, font=self.font_normal)
+        self.send_btn = tk.Button(
+            self.cmd_frame,
+            text=self._ensure_text(self.tr("send")),
+            command=self._on_send,
+            font=self.font_normal,
+            bg="#1d4ed8",
+            fg="#ffffff",
+            activebackground="#1e40af",
+            activeforeground="#ffffff",
+            relief=tk.FLAT,
+            padx=12,
+        )
         self.send_btn.pack(side=tk.LEFT, padx=(8, 0))
+        self._set_text_input_visibility(self._text_input_visible)
 
         self.conversation_frame = ttk.LabelFrame(left, text=self.tr("conversation"), padding=10)
         self.conversation_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
@@ -497,7 +708,10 @@ class DashboardApp(tk.Tk):
             state=tk.DISABLED,
             height=16,
             font=self.font_normal,
-            relief=tk.FLAT,
+            relief=tk.SOLID,
+            bd=1,
+            bg=self.colors["card_bg"],
+            fg=self.colors["text_primary"],
             padx=8,
             pady=8,
         )
@@ -509,36 +723,147 @@ class DashboardApp(tk.Tk):
             self.chat_history.append((self.tr("system"), self._ensure_text(self.tr("system_ready"))))
         self._render_chat_history()
 
-        right = ttk.LabelFrame(body, text=self.tr("dashboard"), padding=10)
+        right = tk.LabelFrame(
+            body,
+            text=self.tr("dashboard"),
+            bg=self.colors["panel_bg"],
+            fg=self.colors["text_primary"],
+            highlightbackground=self.colors["card_border"],
+            highlightthickness=1,
+            padx=10,
+            pady=10,
+        )
         self.dashboard_frame = right
         right.grid(row=0, column=1, sticky="nsew")
 
-        self.clock_label = tk.Label(right, text="", anchor="w", font=self.font_normal)
+        self.clock_label = tk.Label(right, text="", anchor="w", font=self.font_normal, bg=self.colors["panel_bg"], fg=self.colors["text_secondary"])
         self.clock_label.pack(anchor="w")
 
-        btns = ttk.Frame(right)
+        self.quick_actions_frame = tk.LabelFrame(
+            right,
+            text=self._ensure_text(self.tr("quick_actions")),
+            bg=self.colors["panel_bg"],
+            fg=self.colors["text_primary"],
+            highlightbackground=self.colors["card_border"],
+            highlightthickness=1,
+            padx=8,
+            pady=8,
+        )
+        self.quick_actions_frame.pack(fill=tk.X, pady=(8, 8))
+        self.quick_actions_frame.columnconfigure(0, weight=1)
+        self.quick_actions_frame.columnconfigure(1, weight=1)
+
+        self.qa_lights_on_btn = tk.Button(
+            self.quick_actions_frame,
+            text=self._ensure_text(self.tr("quick_all_lights_on")),
+            command=self._quick_all_lights_on,
+            font=self.font_normal,
+            bg="#e8f7ee",
+            fg="#065f46",
+            activebackground="#d1fae5",
+            activeforeground="#065f46",
+            relief=tk.GROOVE,
+            bd=1,
+        )
+        self.qa_lights_on_btn.grid(row=0, column=0, sticky="ew", padx=(0, 4), pady=(0, 6))
+
+        self.qa_lights_off_btn = tk.Button(
+            self.quick_actions_frame,
+            text=self._ensure_text(self.tr("quick_all_lights_off")),
+            command=self._quick_all_lights_off,
+            font=self.font_normal,
+            bg="#fef2f2",
+            fg="#991b1b",
+            activebackground="#fee2e2",
+            activeforeground="#991b1b",
+            relief=tk.GROOVE,
+            bd=1,
+        )
+        self.qa_lights_off_btn.grid(row=0, column=1, sticky="ew", padx=(4, 0), pady=(0, 6))
+
+        self.qa_reset_state_btn = tk.Button(
+            self.quick_actions_frame,
+            text=self._ensure_text(self.tr("quick_reset_state")),
+            command=self._quick_reset_device_state,
+            font=self.font_normal,
+            bg="#fff7ed",
+            fg="#9a3412",
+            activebackground="#ffedd5",
+            activeforeground="#9a3412",
+            relief=tk.GROOVE,
+            bd=1,
+        )
+        self.qa_reset_state_btn.grid(row=1, column=0, sticky="ew", padx=(0, 4), pady=(0, 0))
+
+        self.qa_return_idle_btn = tk.Button(
+            self.quick_actions_frame,
+            text=self._ensure_text(self.tr("quick_return_idle")),
+            command=self._quick_return_idle,
+            font=self.font_normal,
+            bg="#eaf2ff",
+            fg="#1e3a8a",
+            activebackground="#dbeafe",
+            activeforeground="#1e3a8a",
+            relief=tk.GROOVE,
+            bd=1,
+        )
+        self.qa_return_idle_btn.grid(row=1, column=1, sticky="ew", padx=(4, 0), pady=(0, 0))
+
+        btns = tk.Frame(right, bg=self.colors["panel_bg"])
         btns.pack(fill=tk.X, pady=(10, 8))
-        self.device_btn = tk.Button(btns, text=self._ensure_text(self.tr("device_state")), command=self._open_device_state, font=self.font_normal)
+        self.device_btn = tk.Button(
+            btns,
+            text=self._ensure_text(self.tr("device_state")),
+            command=self._open_device_state,
+            font=self.font_normal,
+            relief=tk.GROOVE,
+            bd=1,
+            bg="#ffffff",
+            fg="#0f172a",
+            activebackground="#f1f5f9",
+            activeforeground="#0f172a",
+        )
         self.device_btn.pack(fill=tk.X, pady=3)
         self.habits_btn = tk.Button(
             btns,
             text=self._ensure_text(self.tr("habits")),
             command=self._open_habits,
             font=self.font_normal,
+            relief=tk.GROOVE,
+            bd=1,
+            bg="#ffffff",
+            fg="#0f172a",
+            activebackground="#f1f5f9",
+            activeforeground="#0f172a",
         )
         self.habits_btn.pack(fill=tk.X, pady=3)
-        self.habits_hint_label = tk.Label(right, text=self._ensure_text(self.tr("habits_hint")), anchor="w", justify=tk.LEFT, wraplength=250, fg="#6b7280", font=self.font_normal)
+        self.habits_hint_label = tk.Label(right, text=self._ensure_text(self.tr("habits_hint")), anchor="w", justify=tk.LEFT, wraplength=250, fg=self.colors["hint"], bg=self.colors["panel_bg"], font=self.font_normal)
         self.habits_hint_label.pack(fill=tk.X, pady=(0, 8))
-        self.queue_btn = tk.Button(btns, text=self._ensure_text(self.tr("queue")), command=self._open_queue, font=self.font_normal)
+        self.queue_btn = tk.Button(
+            btns,
+            text=self._ensure_text(self.tr("queue")),
+            command=self._open_queue,
+            font=self.font_normal,
+            relief=tk.GROOVE,
+            bd=1,
+            bg="#ffffff",
+            fg="#0f172a",
+            activebackground="#f1f5f9",
+            activeforeground="#0f172a",
+        )
         self.queue_btn.pack(fill=tk.X, pady=3)
 
-        self.sync_label = tk.Label(right, text="", anchor="w", font=self.font_normal)
+        self.sync_label = tk.Label(right, text="", anchor="w", font=self.font_normal, bg=self.colors["panel_bg"], fg=self.colors["text_secondary"])
         self.sync_label.pack(anchor="w", pady=(8, 0))
 
         self._apply_widget_fonts()
 
     def _set_boot_status(self) -> None:
-        self._set_status(self.tr("idle"), self.tr("ready_detail"))
+        if self.voice_only_mode and self.speech_enabled:
+            self._set_status(self.tr("waiting_wake_word"), self.tr("waiting_wake_word_detail"))
+        else:
+            self._set_status(self.tr("idle"), self.tr("ready_detail"))
+        self._update_debug_mode_indicator()
         if self.lang.get() == "zh" and not self.has_cjk_font:
             self.font_notice_label.configure(text="警告: 系統未偵測到中文字型，請安裝 fonts-noto-cjk 或 fonts-wqy-zenhei。")
         else:
@@ -575,8 +900,13 @@ class DashboardApp(tk.Tk):
         self._submit_command(raw, self.tr("you"))
 
     def _on_send_done(self, result: GuiCommandPresentation) -> None:
-        self._apply_command_result(result)
+        if self._discard_next_result:
+            self._discard_next_result = False
+            self._finish_command_flow()
+            self._set_status(self.tr("waiting_wake_word"), self.tr("waiting_wake_word_detail"))
+            return
         self._finish_command_flow()
+        self._apply_command_result(result)
 
     def _read_schedule_queue(self) -> list[dict[str, Any]]:
         if not self.schedule_path.exists():
@@ -622,6 +952,33 @@ class DashboardApp(tk.Tk):
     def _set_status_async(self, state_text: str, detail_text: str) -> None:
         self.after(0, lambda: self._set_status(state_text, detail_text))
 
+    def _consume_force_waiting_request(self) -> bool:
+        if self._force_waiting_requested:
+            self._force_waiting_requested = False
+            return True
+        return False
+
+    def _run_quick_command(self, text: str) -> None:
+        self._submit_command(text, self.tr("system"))
+
+    def _quick_all_lights_on(self) -> None:
+        self._run_quick_command(self.tr("quick_all_lights_on"))
+
+    def _quick_all_lights_off(self) -> None:
+        self._run_quick_command(self.tr("quick_all_lights_off"))
+
+    def _quick_reset_device_state(self) -> None:
+        # Keep reset action minimal and reuse existing command routing.
+        self._run_quick_command("全部關燈，關風扇，溫度設為26度")
+
+    def _quick_return_idle(self) -> None:
+        is_processing = self.tr("processing") in self.current_status.get()
+        self._discard_next_result = is_processing
+        self._force_waiting_requested = True
+        self.command_text.set("")
+        self._set_input_enabled(True)
+        self._set_status(self.tr("waiting_wake_word"), self.tr("waiting_wake_word_detail"))
+
     def _detect_wake_by_energy(self, timeout_seconds: int = 3) -> bool:
         if self._speech is None:
             return False
@@ -634,7 +991,7 @@ class DashboardApp(tk.Tk):
         except Exception:
             return False
 
-        threshold = 800
+        threshold = VOICE_WAKE_FALLBACK_THRESHOLD
         chunk_bytes = 3200
         end_at = time.time() + max(1, timeout_seconds)
         activated = False
@@ -672,19 +1029,39 @@ class DashboardApp(tk.Tk):
 
         def _voice_worker() -> None:
             while not self._voice_stop_event.is_set():
+                if self._consume_force_waiting_request():
+                    self._set_status_async(self.tr("waiting_wake_word"), self.tr("waiting_wake_word_detail"))
+                    time.sleep(max(0.0, VOICE_RETRY_BACKOFF_SEC))
+                    continue
                 self._set_status_async(self.tr("waiting_wake_word"), self.tr("waiting_wake_word_detail"))
                 if not self._wait_for_wake():
+                    time.sleep(max(0.0, VOICE_RETRY_BACKOFF_SEC))
+                    continue
+                if self._consume_force_waiting_request():
+                    self._set_status_async(self.tr("waiting_wake_word"), self.tr("waiting_wake_word_detail"))
+                    time.sleep(max(0.0, VOICE_RETRY_BACKOFF_SEC))
                     continue
                 if self._voice_stop_event.is_set():
                     break
 
                 self._set_status_async(self.tr("listening"), self.tr("listening_detail"))
                 try:
+                    spoken = self._speech.speech_to_text(
+                        duration=getattr(self._speech, "default_duration", 5),
+                        on_transcribe_start=lambda: self._set_status_async(self.tr("processing"), self.tr("processing_detail")),
+                    ).strip()
+                except TypeError:
                     spoken = self._speech.speech_to_text(duration=getattr(self._speech, "default_duration", 5)).strip()
+                    self._set_status_async(self.tr("processing"), self.tr("processing_detail"))
                 except Exception:
                     spoken = ""
 
+                if self._consume_force_waiting_request():
+                    self._set_status_async(self.tr("waiting_wake_word"), self.tr("waiting_wake_word_detail"))
+                    time.sleep(max(0.0, VOICE_RETRY_BACKOFF_SEC))
+                    continue
                 if not spoken:
+                    time.sleep(max(0.0, VOICE_RETRY_BACKOFF_SEC))
                     continue
 
                 self.after(0, lambda text=spoken: self._submit_command(text, self.tr("you")))
@@ -793,9 +1170,18 @@ class DashboardApp(tk.Tk):
         self.system_title.configure(text=self._ensure_text(self.tr("system_ready")))
         self.lang_label.configure(text=f"{self._ensure_text(self.tr('lang'))}: ")
         self.chat_hint_label.configure(text=self._ensure_text(self.tr("chat_hint")))
+        self.voice_mode_title_label.configure(text=self._ensure_text(self.tr("voice_mode_title")))
+        self.debug_mode_title_label.configure(text=self._ensure_text(self.tr("debug_mode_title")))
+        self.debug_toggle_btn.configure(text=self._ensure_text(self.tr("debug_input_toggle")))
         self.send_btn.configure(text=self._ensure_text(self.tr("send")))
+        self.cmd_frame.configure(text=self.tr("input_label"))
         self.conversation_frame.configure(text=self._ensure_text(self.tr("conversation")))
         self.dashboard_frame.configure(text=self._ensure_text(self.tr("dashboard")))
+        self.quick_actions_frame.configure(text=self._ensure_text(self.tr("quick_actions")))
+        self.qa_lights_on_btn.configure(text=self._ensure_text(self.tr("quick_all_lights_on")))
+        self.qa_lights_off_btn.configure(text=self._ensure_text(self.tr("quick_all_lights_off")))
+        self.qa_reset_state_btn.configure(text=self._ensure_text(self.tr("quick_reset_state")))
+        self.qa_return_idle_btn.configure(text=self._ensure_text(self.tr("quick_return_idle")))
         self.device_btn.configure(text=self._ensure_text(self.tr("device_state")))
         self.habits_btn.configure(text=self._ensure_text(self.tr("habits")))
         self.habits_hint_label.configure(text=self._ensure_text(self.tr("habits_hint")))
@@ -805,9 +1191,13 @@ class DashboardApp(tk.Tk):
             self.chat_history.append((self.tr("system"), self._ensure_text(self.tr("system_ready"))))
         self._render_chat_history()
         self._set_boot_status()
+        self._update_voice_mode_indicator()
+        self._update_debug_mode_indicator()
         self._focus_input()
 
 
 def run_gui() -> None:
+    print("[GUI] app created")
     app = DashboardApp()
+    print("[GUI] entering mainloop")
     app.mainloop()

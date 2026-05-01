@@ -22,6 +22,7 @@ def _apply_runtime_defaults(mode: str) -> None:
 
 
 def run_gui_app() -> None:
+    _apply_runtime_defaults("desktop")
     # Tkinter relies on XIM/IME env vars on Linux; set sane defaults if missing.
     if os.name == "posix" and not os.environ.get("XMODIFIERS"):
         if shutil.which("fcitx5-remote") or shutil.which("fcitx-remote"):

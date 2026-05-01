@@ -1,7 +1,10 @@
 import os
 import struct
 import platform
+import time
 from pathlib import Path
+
+from src.utils.config import VOICE_RETRY_BACKOFF_SEC
 
 try:
     from dotenv import load_dotenv
@@ -64,6 +67,12 @@ def _resolve_ppn_path() -> tuple[Path | None, list[Path], str]:
             return p, candidates, _detect_platform_tag()
     return None, candidates, _detect_platform_tag()
 
+
+def _retry_backoff() -> None:
+    delay = max(0.0, VOICE_RETRY_BACKOFF_SEC)
+    if delay > 0:
+        time.sleep(delay)
+
 def wait_for_wake_word():
     """
     阻塞程式，直到聽到指定的喚醒詞為止。
@@ -75,10 +84,12 @@ def wait_for_wake_word():
         import pyaudio
     except Exception as e:
         print(f"錯誤: 喚醒詞套件未安裝或不可用: {e}")
+        _retry_backoff()
         return False
 
     if not access_key:
         print("錯誤: 找不到 PICOVOICE_API_KEY，請檢查 .env 檔案")
+        _retry_backoff()
         return False
 
     # 檢查 .ppn 檔案是否存在（支援平台專用路徑 + 舊版路徑）
@@ -90,6 +101,7 @@ def wait_for_wake_word():
         for p in ppn_candidates:
             print(f"  - {p}")
         print("可用環境變數 WAKEWORD_PPN_PATH 指定自訂模型路徑")
+        _retry_backoff()
         return False
 
     print(f"[Wakeword] 使用模型: {ppn_path}")
@@ -122,6 +134,7 @@ def wait_for_wake_word():
 
         if input_device_index is None:
             print("錯誤: 找不到 USB 麥克風裝置")
+            _retry_backoff()
             return False
 
         print(f"[Wakeword] 使用麥克風裝置: index={input_device_index}")
@@ -161,6 +174,7 @@ def wait_for_wake_word():
             print("請下載對應平台的 wakeword.ppn，或設定 WAKEWORD_PPN_PATH")
         else:
             print(f"喚醒詞引擎發生錯誤: {e}")
+        _retry_backoff()
         return False
 
     finally:
