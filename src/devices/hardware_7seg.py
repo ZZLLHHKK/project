@@ -18,10 +18,15 @@ from typing import Optional
 
 import src.utils.config as config
 
+_GPIO_BACKEND = "RPi.GPIO"
+
 # Optional GPIO fallback for non-Raspberry Pi environments.
 try:
     import RPi.GPIO as GPIO  # type: ignore
-except Exception:  # pragma: no cover
+except Exception as exc:  # pragma: no cover
+    print(f"[GPIO ERROR] {exc}")
+    print("[MOCK MODE ENABLED]")
+    _GPIO_BACKEND = "mock"
     class _MockGPIO:  # minimal mock
         BCM = OUT = HIGH = LOW = 0
         def setwarnings(self, *_): pass
@@ -42,6 +47,7 @@ class SevenSegDisplay:
     def setup(self) -> None:
         GPIO.setwarnings(False)
         GPIO.setmode(GPIO.BCM)
+        print(f"[7SEG GPIO] backend={_GPIO_BACKEND} mode=BCM")
 
         for pin in config.SEGMENTS.values():
             GPIO.setup(pin, GPIO.OUT)
@@ -90,6 +96,7 @@ class SevenSegDisplay:
             s = f"{n:02d}"[-2:]
         with self._lock:
             self._value_str = s
+        print(f"[7SEG GPIO] value={s}")
 
     def set_temp(self, temp: int) -> None:
         self.set_number(temp)

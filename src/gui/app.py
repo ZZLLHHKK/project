@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import locale
 import audioop
 import subprocess
@@ -224,6 +225,17 @@ WINDOW_TITLE_SUFFIXES = {
 }
 
 
+def _is_raspberry_pi() -> bool:
+    try:
+        model_path = Path("/proc/device-tree/model")
+        if model_path.exists():
+            model_text = model_path.read_text(encoding="utf-8", errors="ignore")
+            return "raspberry pi" in model_text.lower()
+    except Exception:
+        pass
+    return False
+
+
 class DashboardApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
@@ -236,7 +248,17 @@ class DashboardApp(tk.Tk):
         self.command_text = tk.StringVar(value="")
         self.reply_text = tk.StringVar(value="")
 
-        self.runtime = build_runtime(mode="desktop", memory_keep=self.chat_limit, with_device=False)
+        env_gui_with_device = os.environ.get("GUI_WITH_DEVICE")
+        if env_gui_with_device is None:
+            gui_with_device = _is_raspberry_pi()
+        else:
+            gui_with_device = env_gui_with_device.strip().lower() not in ("0", "false", "off", "no")
+        self.runtime = build_runtime(
+            mode="desktop",
+            memory_keep=self.chat_limit,
+            with_device=gui_with_device,
+            setup_device=gui_with_device,
+        )
         self.state = self.runtime.state
         self.memory = self.runtime.memory
         self.agent = self.runtime.agent

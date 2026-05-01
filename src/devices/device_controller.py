@@ -50,6 +50,7 @@ class DeviceController:
     def execute_actions(self, actions: list[dict]) -> list[dict]:
         results: list[dict] = []
         for action in actions:
+            print(f"[DEVICE CONTROLLER] executing: {action}")
             result = dict(action)
             result["success"] = True
             try:

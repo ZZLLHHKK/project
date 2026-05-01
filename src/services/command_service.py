@@ -29,6 +29,7 @@ def execute_text_command(agent: Any, text: str, lang: str | None = None) -> Comm
     actions = payload.get("actions_executed", [])
     if not isinstance(actions, list):
         actions = []
+    print(f"[COMMAND SERVICE] actions before execute: {actions}")
 
     should_standby = any(isinstance(action, dict) and action.get("type") == "ENTER_STANDBY" for action in actions)
     should_shutdown = any(isinstance(action, dict) and action.get("type") == "SHUTDOWN" for action in actions)

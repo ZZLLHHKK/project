@@ -85,10 +85,13 @@ class SmartHomeAgent:
     def _execute_actions(self, actions: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], Optional[str]]:
         if not actions:
             return [], None
+        controller_name = self.device_controller.__class__.__name__ if self.device_controller is not None else "None"
+        print(f"[DEVICE CONTROLLER INSTANCE] class={controller_name}")
         if self.device_controller is None:
             executed = [dict(action, success=True) for action in actions]
             return executed, None
 
+        print(f"[AGENT ACTIONS] dispatch_to_device_controller={actions}")
         results = self.device_controller.execute_actions(actions)
         failures = [item for item in results if not item.get("success", False)]
         if failures:
@@ -532,6 +535,7 @@ class SmartHomeAgent:
 
         rules = self.memory.load_rules()
         fast_actions = self.fastpath.parse(clean_input, rules=rules)
+        print(f"[AGENT ACTIONS] {fast_actions}")
         if fast_actions:
             executed, exec_error = self._execute_actions(fast_actions)
             self.state.update_from_actions([item for item in executed if item.get("success")])
@@ -546,6 +550,7 @@ class SmartHomeAgent:
         gemini_result = self.gemini.parse(clean_input, self.state, self.memory, lang)
         intent = gemini_result.get("intent")
         all_actions = gemini_result.get("actions", [])
+        print(f"[AGENT ACTIONS] {all_actions}")
         reply = str(gemini_result.get("reply") or _t(lang, FRIENDLY_ERROR, FRIENDLY_ERROR_EN))
 
         if intent == "unclear":

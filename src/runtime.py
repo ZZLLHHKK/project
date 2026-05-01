@@ -41,6 +41,7 @@ def build_runtime(
         raise ValueError("setup_device=True requires with_device=True")
 
     runtime_mode = (mode or "desktop").strip().lower()
+    print(f"[RUNTIME] mode={runtime_mode} with_device={with_device} setup_device={setup_device}")
     memory_kwargs: dict[str, int] = {}
     if memory_keep is not None:
         memory_kwargs["keep"] = memory_keep
@@ -54,9 +55,12 @@ def build_runtime(
     device: DeviceController | None = None
     if with_device:
         device = DeviceController()
+        print(f"[DEVICE CONTROLLER INSTANCE] class={device.__class__.__name__}")
         if setup_device:
             device.setup()
             _sync_device_from_state(device, state)
+    else:
+        print("[DEVICE CONTROLLER INSTANCE] class=None")
 
     agent = SmartHomeAgent(memory=memory, state=state, device_controller=device)
     return AppRuntime(mode=runtime_mode, state=state, memory=memory, agent=agent, device=device)

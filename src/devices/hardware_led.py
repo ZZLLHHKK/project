@@ -9,13 +9,19 @@ LangGraph node usage:
 """
 from __future__ import annotations
 
+import time
 from typing import Optional
 
 import src.utils.config as config
 
+_GPIO_BACKEND = "RPi.GPIO"
+
 try:
     import RPi.GPIO as GPIO  # type: ignore
-except Exception:  # pragma: no cover
+except Exception as exc:  # pragma: no cover
+    print(f"[GPIO ERROR] {exc}")
+    print("[MOCK MODE ENABLED]")
+    _GPIO_BACKEND = "mock"
     class _MockGPIO:
         BCM = OUT = HIGH = LOW = 0
         def setwarnings(self, *_): pass
@@ -30,9 +36,13 @@ class LedController:
     def setup(self) -> None:
         GPIO.setwarnings(False)
         GPIO.setmode(GPIO.BCM)
+        mode_name = "BCM"
         for pin in config.LED_LOCATION_TO_PIN.values():
+            print(f"[LED SETUP] pin={pin} mode={mode_name} backend={_GPIO_BACKEND}")
             GPIO.setup(pin, GPIO.OUT)
             GPIO.output(pin, config.LED_OFF)
+            init_state = "HIGH" if config.LED_OFF == getattr(GPIO, "HIGH", None) else "LOW"
+            print(f"[LED GPIO] pin={pin} state={init_state}")
 
     @staticmethod
     def _norm_color_or_location(x: str) -> Optional[str]:
@@ -61,14 +71,30 @@ class LedController:
             raise ValueError(f"Invalid LED state: {state}")
 
         pin = config.LED_LOCATION_TO_PIN[loc]
-        GPIO.output(pin, config.LED_ON if st == "on" else config.LED_OFF)
+        gpio_state = config.LED_ON if st == "on" else config.LED_OFF
+        GPIO.output(pin, gpio_state)
+        state_name = "HIGH" if gpio_state == getattr(GPIO, "HIGH", None) else "LOW"
+        print(f"[LED GPIO] pin={pin} state={state_name}")
 
     def all_off(self) -> None:
         for pin in config.LED_LOCATION_TO_PIN.values():
             GPIO.output(pin, config.LED_OFF)
+            state_name = "HIGH" if config.LED_OFF == getattr(GPIO, "HIGH", None) else "LOW"
+            print(f"[LED GPIO] pin={pin} state={state_name}")
 
     def cleanup(self) -> None:
         try:
             self.all_off()
         except Exception:
             pass
+
+
+if __name__ == "__main__":
+    led = LedController()
+    led.setup()
+    try:
+        led.set_led("KITCHEN", "on")
+        time.sleep(2)
+        led.set_led("KITCHEN", "off")
+    finally:
+        led.cleanup()
