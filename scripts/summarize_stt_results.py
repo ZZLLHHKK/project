@@ -11,52 +11,16 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Summarize STT evaluation results by model and export CSV."
     )
-    parser.add_argument(
-        "--input",
-        default="data/eval/results.csv",
-        help="Input results CSV path.",
-    )
-    parser.add_argument(
-        "--output",
-        default="data/eval/summary_by_model.csv",
-        help="Output summary CSV path.",
-    )
-    parser.add_argument(
-        "--warm-only",
-        action="store_true",
-        help="Only include startup_state=Warm rows in summary.",
-    )
+    parser.add_argument("--input",    default="data/eval/results.csv")
+    parser.add_argument("--output",   default="data/eval/summary_by_model.csv")
+    parser.add_argument("--warm-only", action="store_true",
+                        help="Only include startup_state=Warm rows in summary.")
+    parser.add_argument("--pc-rows",  type=int, default=432,
+                        help="Number of data rows belonging to PC (default 432).")
     return parser.parse_args()
 
 
-def main() -> None:
-    args = parse_args()
-    input_path = Path(args.input)
-    output_path = Path(args.output)
-
-    if not input_path.exists():
-        raise FileNotFoundError(f"Input CSV not found: {input_path}")
-
-    df = pd.read_csv(input_path)
-    required = {
-        "model_size",
-        "run_id",
-        "cer",
-        "sentence_correct",
-        "inference_ms",
-        "rtf",
-        "startup_state",
-    }
-    missing = required.difference(df.columns)
-    if missing:
-        raise ValueError(f"Missing required columns in input CSV: {sorted(missing)}")
-
-    if args.warm_only:
-        df = df[df["startup_state"].astype(str).str.lower() == "warm"].copy()
-
-    if df.empty:
-        raise ValueError("No rows available for summary after filtering.")
-
+def build_summary(df: pd.DataFrame) -> pd.DataFrame:
     warm_df = df[df["startup_state"].astype(str).str.lower() == "warm"].copy()
 
     summary = (
@@ -89,11 +53,53 @@ def main() -> None:
         summary["mean_warm_inference_ms"] = 0.0
         summary["p95_warm_inference_ms"] = 0.0
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    summary.to_csv(output_path, index=False, encoding="utf-8-sig")
+    return summary
 
-    print(summary.to_string(index=False))
-    print(f"\nSummary written to: {output_path}")
+
+def main() -> None:
+    args = parse_args()
+    input_path = Path(args.input)
+    output_path = Path(args.output)
+
+    if not input_path.exists():
+        raise FileNotFoundError(f"Input CSV not found: {input_path}")
+
+    df = pd.read_csv(input_path)
+    required = {"model_size", "run_id", "cer", "sentence_correct",
+                "inference_ms", "rtf", "startup_state"}
+    missing = required.difference(df.columns)
+    if missing:
+        raise ValueError(f"Missing required columns: {sorted(missing)}")
+
+    if args.warm_only:
+        df = df[df["startup_state"].astype(str).str.lower() == "warm"].copy()
+
+    if df.empty:
+        raise ValueError("No rows available after filtering.")
+
+    pc_df = df.iloc[:args.pc_rows].copy()
+    pi_df = df.iloc[args.pc_rows:].copy()
+
+    rows = []
+
+    if not pc_df.empty:
+        pc_summary = build_summary(pc_df)
+        pc_summary.insert(0, "env", "pc")
+        rows.append(pc_summary)
+        print("=== PC 結果 ===")
+        print(pc_summary.to_string(index=False))
+
+    if not pi_df.empty:
+        pi_summary = build_summary(pi_df)
+        pi_summary.insert(0, "env", "pi")
+        rows.append(pi_summary)
+        print("\n=== Pi 結果 ===")
+        print(pi_summary.to_string(index=False))
+
+    combined = pd.concat(rows, ignore_index=True)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    combined.to_csv(output_path, index=False, encoding="utf-8-sig")
+    print(f"\n彙總寫入：{output_path}")
 
 
 if __name__ == "__main__":
