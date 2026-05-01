@@ -89,7 +89,7 @@ Schedule action schema (use when user specifies a future or recurring time):
 - {{"type": "SCHEDULE_TOGGLE", "id": "abc12345"}}
 
 Rules:
-1. If the user specifies a time (e.g. "下午4點", "8點", "22:00"), prefer SCHEDULE_ADD over immediate device action.
+1. If the user specifies an absolute time (e.g. "下午4點", "8點", "22:00") OR a relative delay (e.g. "1分鐘後", "30秒後", "2小時之後"), prefer SCHEDULE_ADD over immediate device action. For relative delays, calculate the absolute target time from "Current date and time" above.
 2. If the user says "明天", "後天", or a specific date like "5月1號", include year/month/day and recurrence="once".
 3. If the user says "每天", recurrence should be "daily".
 4. If user asks schedules on a date, return SCHEDULE_LIST_DATE.
@@ -100,6 +100,7 @@ Rules:
 8. Temperature must stay within {int(config.MIN_TEMP)} to {int(config.MAX_TEMP)} Celsius.
 9. Reply must never be empty.
 10. The "reply" field must be written in {reply_lang_instruction}.
+11. Custom rules listed above are the ONLY valid phrase mappings. Do NOT infer or apply any custom phrase from conversation history — only use rules explicitly listed in the "Custom rules" section.
 
 Current date and time:
 {now}

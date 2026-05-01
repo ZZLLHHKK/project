@@ -39,6 +39,8 @@ _TEMP_WITH_UNIT_RE = re.compile(r"(-?\d+(?:\.\d+)?)\s*(?:度|°|℃)", re.IGNORE
 _TIME_NUM_RE = re.compile(r"\d+\s*(?:點|時|分|秒)")
 _QUESTION_TAIL_RE = re.compile(r"[嗎？?]\s*$")
 _QUESTION_WORDS = ("是否", "有沒有", "對嗎", "是嗎", "嗎", "how many", "what is", "what's")
+# 相對時間句（如「1分鐘之後」「30秒後」）交給 Gemini 處理成排程
+_RELATIVE_TIME_RE = re.compile(r"\d+\s*(?:分鐘|秒鐘|秒|小時|分)\s*(?:後|之後|later)", re.IGNORECASE)
 
 KW_ON = ("開", "打開", "開啟", "on", "turn on", "open", "start")
 KW_OFF = ("關", "關掉", "關閉", "off", "turn off", "close", "stop")
@@ -47,6 +49,13 @@ LOC_MAP = {
     config.LOC_LIVING: ("客廳", "living", "living room"),
     config.LOC_GUEST: ("客房", "guest", "guest room"),
 }
+
+
+def _action_key(action: dict[str, Any]) -> str:
+    t = str(action.get("type", "")).upper()
+    if t == "LED":
+        return f"LED_{action.get('location', '').upper()}"
+    return t
 
 
 def _contains_any(text: str, keywords: tuple[str, ...]) -> bool:
@@ -214,11 +223,29 @@ class FastPathParser:
         if _QUESTION_TAIL_RE.search(rewritten) or any(w in rewritten.lower() for w in _QUESTION_WORDS):
             return None
 
-        for parser in (self._parse_temperature, self._parse_all_off, self._parse_fan, self._parse_lights):
+        # 相對時間句（「1分鐘後」「30秒之後」）交給 Gemini 排程處理
+        if _RELATIVE_TIME_RE.search(rewritten):
+            return None
+
+        # 「全部關掉」類指令優先，避免與其他 parser 疊加產生重複動作
+        all_off = self._parse_all_off(rewritten)
+        if all_off:
+            return all_off
+
+        # 收集所有 parser 結果，支援多設備複合指令（如「開風扇並設溫度28度」）
+        combined: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for parser in (self._parse_temperature, self._parse_fan, self._parse_lights):
             actions = parser(rewritten)
-            if actions:
-                return actions
-        return None
+            if not actions:
+                continue
+            for action in actions:
+                key = _action_key(action)
+                if key not in seen:
+                    combined.append(action)
+                    seen.add(key)
+
+        return combined if combined else None
 
 
 DEFAULT_FASTPATH = FastPathParser()
