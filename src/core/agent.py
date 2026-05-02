@@ -548,8 +548,18 @@ class SmartHomeAgent:
             self.memory.add_interaction(clean_input, reply)
             return self._build_result(reply, [], None)
 
+        # If input contains delete/cancel keywords with a time reference but
+        # parse_delete couldn't resolve the time (ambiguous AM/PM), skip fastpath
+        # so Gemini can ask for clarification instead of executing a device command.
+        _DELETE_KW = ("刪除", "移除", "取消", "delete", "remove", "cancel")
+        from src.core.parser.schedule_parser import has_time_reference as _has_time_ref
+        _has_delete_intent = (
+            any(kw in clean_input for kw in _DELETE_KW)
+            and _has_time_ref(clean_input)
+        )
+
         rules = self.memory.load_rules()
-        fast_actions = self.fastpath.parse(clean_input, rules=rules)
+        fast_actions = None if _has_delete_intent else self.fastpath.parse(clean_input, rules=rules)
         print(f"[AGENT ACTIONS] {fast_actions}")
         if fast_actions:
             executed, exec_error = self._execute_actions(fast_actions)
