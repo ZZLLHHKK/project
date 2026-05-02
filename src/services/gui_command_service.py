@@ -75,8 +75,10 @@ def _sanitize_tts_reply(reply: str) -> str:
 def build_gui_command_presentation(result: CommandResult, language: str) -> GuiCommandPresentation:
     raw_reply = str(result.raw_reply or "")
     formatted_reply = format_reply_for_language(raw_reply, language)
-    spoken_reply = _sanitize_tts_reply(raw_reply)
-    should_speak = language == "zh" and bool(raw_reply)
+    spoken_reply = _sanitize_tts_reply(
+        format_reply_for_language(raw_reply, language)
+    )
+    should_speak = bool(raw_reply)
     return GuiCommandPresentation(
         raw_reply=raw_reply,
         formatted_reply=formatted_reply,
