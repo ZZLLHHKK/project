@@ -21,12 +21,13 @@ from typing import Any
 try:
     from src.utils.tts import speak as _tts_speak
 except Exception:
-    def _tts_speak(text: str) -> None:  # type: ignore[misc]
+    def _tts_speak(text: str, lang: str = "zh") -> None:  # type: ignore[misc]
         pass
 
 
 def _speak_async(
     text: str,
+    lang: str = "zh",
     on_start: callable | None = None,
     on_done: callable | None = None,
 ) -> None:
@@ -35,7 +36,7 @@ def _speak_async(
         if callable(on_start):
             on_start()
         try:
-            _tts_speak(text)
+            _tts_speak(text, lang=lang)
         finally:
             if callable(on_done):
                 on_done()
@@ -567,6 +568,7 @@ class DashboardApp(tk.Tk):
         if result.should_speak and result.spoken_reply:
             _speak_async(
                 result.spoken_reply,
+                lang=self.lang.get(),
                 on_start=lambda: self.after(0, lambda: self._set_status(self.tr("speaking"), self.tr("speaking_detail"))),
                 on_done=lambda: self.after(0, lambda: self._set_status(self.tr("idle"), self.tr("ready_detail"))),
             )

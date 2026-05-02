@@ -72,11 +72,11 @@ class SpeechProcessor:
         return text
 
     # ====================== 嘴巴（輸出） ======================
-    def text_to_speech(self, text: str) -> None:
+    def text_to_speech(self, text: str, lang: str = "zh") -> None:
         """播放回覆（整合原本 tts.py 的 speak）"""
         if not text:
             return
-        speak(text)  # 直接呼叫現有 TTS 邏輯
+        speak(text, lang=lang)
 
     # ====================== 私有輔助方法 ======================
     def describe_capture_path(self) -> str:

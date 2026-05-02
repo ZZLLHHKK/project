@@ -46,6 +46,7 @@ PIPER_EXE = PIPER_DIR / ("piper_arm/piper" if _arch == "aarch64" else "piper")
 # 語音模型統一下載到 models 資料夾
 MODELS_DIR = DATA_DIR / "models"
 TTS_MODEL = MODELS_DIR / "voice.onnx"
+TTS_MODEL_EN = MODELS_DIR / "en_US-lessac-medium.onnx"
 
 HISTORY_KEEP = 5
 
