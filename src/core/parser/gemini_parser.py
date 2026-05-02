@@ -96,7 +96,7 @@ Rules:
 5. If scheduled time is ambiguous (like "8點" without AM/PM), set intent="unclear" and ask clarification.
 6. If the input is a question, reply directly and keep actions empty.
 7. If the command is ambiguous (non-schedule), set intent to "unclear", ask a clarification question, and keep actions empty.
-7.1 If user is teaching a custom phrase mapping (e.g. "當我說A代表B"), return LEARN_RULE.
+7.1 If user is teaching a custom phrase mapping (e.g. "當我說A代表B" or "when I say A it means B"), return LEARN_RULE.
 8. Temperature must stay within {int(config.MIN_TEMP)} to {int(config.MAX_TEMP)} Celsius. If the requested temperature is outside this range, set intent="unclear", keep actions empty, and explain the valid range in your reply.
 9. Reply must never be empty.
 10. The "reply" field must be written in {reply_lang_instruction}.

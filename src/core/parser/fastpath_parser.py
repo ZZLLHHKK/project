@@ -7,15 +7,23 @@ from typing import Any, Optional
 import src.utils.config as config
 
 LEARN_PATTERNS = [
+    # 中文句型
     re.compile(r"^\s*當我說\s*(.+?)\s*(?:的時候|時|時候)?\s*[，,]?\s*代表\s*(.+?)\s*$"),
     re.compile(r"^\s*(?:以後|之後)\s*我說\s*(.+?)\s*(?:就是|就|代表)\s*(.+?)\s*$"),
     re.compile(r"^\s*我說\s*(.+?)\s*(?:的)?意思是\s*(.+?)\s*$"),
     re.compile(r"^\s*(.+?)\s*代表\s*(.+?)\s*$"),
     re.compile(r"^\s*如果我說\s*(.+?)\s*[，,]?\s*(?:請|就)\s*(.+?)\s*$"),
+    # 英文句型
+    re.compile(r"^\s*when(?:ever)?\s+I\s+say\s+[\"']?(.+?)[\"']?\s*,?\s*(?:it\s+)?means?\s+(.+?)\s*$", re.IGNORECASE),
+    re.compile(r"^\s*if\s+I\s+say\s+[\"']?(.+?)[\"']?\s*,?\s*(?:please\s+|it\s+means?\s+)(.+?)\s*$", re.IGNORECASE),
+    re.compile(r"^\s*from\s+now\s+on\s+[\"']?(.+?)[\"']?\s+(?:means?|stands?\s+for)\s+(.+?)\s*$", re.IGNORECASE),
+    re.compile(r"^\s*[\"']?(.+?)[\"']?\s+stands?\s+for\s+[\"']?(.+?)[\"']?\s*$", re.IGNORECASE),
 ]
 
-LEARN_GROUP_1 = ("當我說", "以後我說", "之後我說", "如果我說")
-LEARN_GROUP_2 = ("代表", "意思是", "等於", "就是", "就")
+LEARN_GROUP_1 = ("當我說", "以後我說", "之後我說", "如果我說",
+                  "when I say", "whenever I say", "if I say", "from now on")
+LEARN_GROUP_2 = ("代表", "意思是", "等於", "就是", "就",
+                  "means", "stands for")
 
 TEMP_KEYWORDS = (
     "溫度",

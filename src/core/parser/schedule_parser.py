@@ -10,6 +10,10 @@ _PERIOD_AM = ("上午", "早上", "早晨", "凌晨")
 _PERIOD_PM = ("下午", "傍晚")
 _PERIOD_NIGHT = ("晚上", "夜晚", "深夜", "夜間")
 _PERIOD_NOON = ("中午", "正午")
+_PERIOD_AM_EN = ("am", "a.m.", "morning")
+_PERIOD_PM_EN = ("afternoon", "pm", "p.m.")
+_PERIOD_NIGHT_EN = ("evening", "night", "tonight")
+_PERIOD_NOON_EN = ("noon", "midday")
 
 _SCHEDULE_SIGNALS = (
     "每天",
@@ -81,34 +85,67 @@ _DATE_RE = re.compile(r"(\d{1,2})月(\d{1,2})(?:號|日)?")
 
 _ID_RE = re.compile(r"\b([a-f0-9]{8})\b")
 _HHMM_RE = re.compile(r"\b(\d{1,2}):(\d{2})\b")
+_HHMM_AMPM_RE = re.compile(r"\b(\d{1,2}):(\d{2})\s*(a\.?m\.?|p\.?m\.?)\b", re.IGNORECASE)
+_AMPM_RE = re.compile(r"\b(\d{1,2})\s*(a\.?m\.?|p\.?m\.?)\b", re.IGNORECASE)
 _CHINESE_HOUR_RE = re.compile(r"(\d{1,2})\s*點")
 _CHINESE_MIN_RE = re.compile(r"\d{1,2}\s*點\s*(\d{1,2})\s*分")
 _CHINESE_HALF_RE = re.compile(r"\d{1,2}\s*點\s*半")
 
 
 def _detect_period(text: str) -> str:
-    for w in _PERIOD_NOON:
-        if w in text:
+    lowered = text.lower()
+    for w in _PERIOD_NOON + _PERIOD_NOON_EN:
+        if w in text or w in lowered:
             return "noon"
-    for w in _PERIOD_NIGHT:
-        if w in text:
+    for w in _PERIOD_NIGHT + _PERIOD_NIGHT_EN:
+        if w in text or w in lowered:
             return "night"
-    for w in _PERIOD_PM:
-        if w in text:
+    for w in _PERIOD_PM + _PERIOD_PM_EN:
+        if w in text or w in lowered:
             return "pm"
-    for w in _PERIOD_AM:
-        if w in text:
+    for w in _PERIOD_AM + _PERIOD_AM_EN:
+        if w in text or w in lowered:
             return "am"
     return ""
 
 
+def _apply_ampm(hour: int, period: str) -> int:
+    if period in ("pm", "night"):
+        return hour + 12 if hour != 12 else hour
+    if period == "am":
+        return 0 if hour == 12 else hour
+    if period == "noon":
+        return 12
+    return hour
+
+
 def parse_time(text: str) -> Optional[tuple[int, int]]:
+    # HH:MM + AM/PM (最優先，避免只取 HH:MM 忽略 PM)
+    m = _HHMM_AMPM_RE.search(text)
+    if m:
+        h, mi = int(m.group(1)), int(m.group(2))
+        period = "pm" if m.group(3).lower().replace(".", "") in ("pm", "p") else "am"
+        h = _apply_ampm(h, period)
+        if 0 <= h <= 23 and 0 <= mi <= 59:
+            return h, mi
+
+    # 純 HH:MM（24 小時制）
     m = _HHMM_RE.search(text)
     if m:
         h, mi = int(m.group(1)), int(m.group(2))
         if 0 <= h <= 23 and 0 <= mi <= 59:
             return h, mi
 
+    # 英文 "10 PM" / "8 AM" 格式
+    m = _AMPM_RE.search(text)
+    if m:
+        h = int(m.group(1))
+        period = "pm" if m.group(2).lower().replace(".", "") in ("pm", "p") else "am"
+        h = _apply_ampm(h, period)
+        if 0 <= h <= 23:
+            return h, 0
+
+    # 中文 X點 格式
     hour_m = _CHINESE_HOUR_RE.search(text)
     if not hour_m:
         return None
@@ -123,18 +160,10 @@ def parse_time(text: str) -> Optional[tuple[int, int]]:
             minute = int(min_m.group(1))
 
     period = _detect_period(text)
-
-    if period == "noon":
-        hour = 12
-    elif period in ("pm", "night"):
-        if hour != 12:
-            hour += 12
-    elif period == "am":
-        if hour == 12:
-            hour = 0
-    else:
-        if hour < 13:
-            return None
+    if period:
+        hour = _apply_ampm(hour, period)
+    elif hour < 13:
+        return None
 
     if 0 <= hour <= 23 and 0 <= minute <= 59:
         return hour, minute
@@ -142,7 +171,7 @@ def parse_time(text: str) -> Optional[tuple[int, int]]:
 
 
 def has_time_reference(text: str) -> bool:
-    return bool(_HHMM_RE.search(text) or _CHINESE_HOUR_RE.search(text))
+    return bool(_HHMM_RE.search(text) or _CHINESE_HOUR_RE.search(text) or _AMPM_RE.search(text))
 
 
 def has_period_only_no_hour(text: str) -> bool:
