@@ -165,29 +165,40 @@ class SchedulerRuntime:
                     continue
 
                 schedule_id = str(sched.get("id") or "")
-                command_text = str(sched.get("name") or "").strip()
-                if not command_text:
-                    continue
+                sched_name = str(sched.get("name") or "").strip()
+                actions = sched.get("actions") or []
+                recurrence = str(sched.get("recurrence") or "daily")
 
                 try:
-                    result = execute_text_command(
-                        self.agent,
-                        command_text,
-                        lang=self._resolve_language(),
-                    )
-                    reply = self._extract_reply(result)
+                    device_controller = getattr(self.agent, "device_controller", None)
+                    if device_controller is not None and actions:
+                        results = device_controller.execute_actions(actions)
+                        state = getattr(self.agent, "state", None)
+                        if state is not None:
+                            state.update_from_actions([r for r in results if r.get("success")])
+                        lang = self._resolve_language() or "zh"
+                        reply = "已執行排程：" + sched_name if lang != "en" else "Schedule executed: " + sched_name
+                    else:
+                        result = execute_text_command(
+                            self.agent,
+                            sched_name,
+                            lang=self._resolve_language(),
+                        )
+                        reply = self._extract_reply(result)
 
                     if self.scheduler is not None and schedule_id:
                         self.scheduler.mark_schedule_executed(schedule_id, now)
+                        if recurrence == "once":
+                            self.scheduler.delete(schedule_id)
                     self._mark_executed_today(schedule_id, today)
 
                     if self.root is not None and callable(self.gui_callback):
-                        self.root.after(0, self.gui_callback, command_text, reply)
+                        self.root.after(0, self.gui_callback, sched_name, reply)
                 except Exception as exc:
                     logger.error(
-                        "scheduler_runtime execute failed (id=%s, text=%s): %s",
+                        "scheduler_runtime execute failed (id=%s, name=%s): %s",
                         schedule_id,
-                        command_text,
+                        sched_name,
                         exc,
                         exc_info=True,
                     )

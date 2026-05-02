@@ -509,13 +509,22 @@ class SmartHomeAgent:
         # 3. delete
         parsed_delete = self.schedule_parser.parse_delete(clean_input)
         if parsed_delete is not None:
-            rule_id = parsed_delete.get("id")
-            if not rule_id:
-                reply = _t(lang, "請告訴我要刪除哪個排程的 ID。", "Please tell me the schedule ID to delete.")
-            elif self.scheduler.delete(rule_id):
-                reply = _t(lang, "已刪除指定排程。", "Selected schedule deleted.")
+            op = parsed_delete.get("op", "delete")
+            if op == "delete_by_time":
+                hour = parsed_delete.get("hour")
+                minute = parsed_delete.get("minute")
+                if self.scheduler.delete_by_time(hour, minute):
+                    reply = _t(lang, "已刪除指定時間的排程。", "Schedule at the specified time deleted.")
+                else:
+                    reply = _t(lang, "找不到指定時間的排程。", "No schedule found at the specified time.")
             else:
-                reply = _t(lang, "找不到指定排程。", "Selected schedule not found.")
+                rule_id = parsed_delete.get("id")
+                if not rule_id:
+                    reply = _t(lang, "請告訴我要刪除哪個排程的 ID。", "Please tell me the schedule ID to delete.")
+                elif self.scheduler.delete(rule_id):
+                    reply = _t(lang, "已刪除指定排程。", "Selected schedule deleted.")
+                else:
+                    reply = _t(lang, "找不到指定排程。", "Selected schedule not found.")
             self.memory.add_interaction(clean_input, reply)
             return self._build_result(reply, [], None)
 

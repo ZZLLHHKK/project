@@ -101,39 +101,40 @@ class ScheduleManager:
         recurrence: str = "once",
         weekday: Optional[int] = None,
     ) -> Optional[dict[str, Any]]:
-        rules = self._read()
-        if len(rules) >= self.max_schedules:
-            return None
+        with self._lock:
+            rules = self._read()
+            if len(rules) >= self.max_schedules:
+                return None
 
-        if self._has_conflict(rules, year, month, day, hour, minute, actions):
-            return None
+            if self._has_conflict(rules, year, month, day, hour, minute, actions, recurrence):
+                return None
 
-        rule: dict[str, Any] = {
-            "id": uuid.uuid4().hex[:8],
-            "name": name or self._generate_name(hour, minute, recurrence),
-            "hour": hour,
-            "minute": minute,
-            "second": second,
-            "actions": actions,
-            "enabled": True,
-            "recurrence": recurrence,
-            "last_executed": None,
-            "last_triggered": None,
-            "last_result": None,
-        }
+            rule: dict[str, Any] = {
+                "id": uuid.uuid4().hex[:8],
+                "name": name or self._generate_name(hour, minute, recurrence),
+                "hour": hour,
+                "minute": minute,
+                "second": second,
+                "actions": actions,
+                "enabled": True,
+                "recurrence": recurrence,
+                "last_executed": None,
+                "last_triggered": None,
+                "last_result": None,
+            }
 
-        if year is not None:
-            rule["year"] = year
-        if month is not None:
-            rule["month"] = month
-        if day is not None:
-            rule["day"] = day
-        if weekday is not None:
-            rule["weekday"] = weekday
+            if year is not None:
+                rule["year"] = year
+            if month is not None:
+                rule["month"] = month
+            if day is not None:
+                rule["day"] = day
+            if weekday is not None:
+                rule["weekday"] = weekday
 
-        rules.append(rule)
-        self._write(rules)
-        return rule
+            rules.append(rule)
+            self._write(rules)
+            return rule
 
     def _has_conflict(
         self,
@@ -144,21 +145,30 @@ class ScheduleManager:
         hour: int,
         minute: int,
         new_actions: list[dict[str, Any]],
+        new_recurrence: str = "once",
     ) -> bool:
-        # 用 _action_key 區分 LED_KITCHEN / LED_LIVING / LED_GUEST，避免不同房間被誤判衝突
         new_keys = {self._action_key(action) for action in new_actions}
+        new_is_daily = new_recurrence == "daily"
 
         for rule in rules:
             if not rule.get("enabled", True):
                 continue
             if rule.get("hour") != hour or rule.get("minute") != minute:
                 continue
-            if year is not None and rule.get("year") != year:
-                continue
-            if month is not None and rule.get("month") != month:
-                continue
-            if day is not None and rule.get("day") != day:
-                continue
+
+            existing_recurrence = str(rule.get("recurrence") or "once")
+
+            # Two once-schedules only conflict if they target the same date
+            if new_recurrence == "once" and existing_recurrence == "once":
+                if year is not None and rule.get("year") is not None and rule.get("year") != year:
+                    continue
+                if month is not None and rule.get("month") is not None and rule.get("month") != month:
+                    continue
+                if day is not None and rule.get("day") is not None and rule.get("day") != day:
+                    continue
+
+            # A once-schedule and a daily schedule at the same time always conflict
+            # (they'd both fire on the target day)
 
             existing_keys = {self._action_key(action) for action in rule.get("actions", [])}
             if new_keys & existing_keys:

@@ -147,8 +147,10 @@ class FastPathParser:
                 value = float(raw)
             except Exception:
                 continue
-            if 0 <= value <= 60:
+            if config.MIN_TEMP <= value <= config.MAX_TEMP:
                 return [{"type": "SET_TEMP", "value": _clamp_temperature(value)}]
+            if 0 <= value <= 60:
+                return None  # out of valid range — let Gemini explain
 
         clean = _TIME_NUM_RE.sub("", text)
         for raw in NUM_RE.findall(clean):
@@ -156,8 +158,10 @@ class FastPathParser:
                 value = float(raw)
             except Exception:
                 continue
-            if 15 <= value <= 45:
+            if config.MIN_TEMP <= value <= config.MAX_TEMP:
                 return [{"type": "SET_TEMP", "value": _clamp_temperature(value)}]
+            if 15 <= value <= 45:
+                return None  # out of valid range — let Gemini explain
         return None
 
     def _parse_fan(self, text: str) -> Optional[list[dict[str, Any]]]:
@@ -172,6 +176,11 @@ class FastPathParser:
     def _parse_all_off(self, text: str) -> Optional[list[dict[str, Any]]]:
         lowered = text.lower()
         if not (("全部" in text or "all" in lowered) and _contains_any(text, KW_OFF)):
+            return None
+        # 含有特定設備詞時交給各自的 parser，避免「全部關燈」連風扇也關
+        has_light = "燈" in text or "light" in lowered or "lights" in lowered
+        has_fan = "風扇" in text or "fan" in lowered
+        if has_light or has_fan:
             return None
         return [
             {"type": "LED", "location": config.LOC_KITCHEN, "state": "off"},

@@ -141,48 +141,43 @@ def render_schedule_panel(
     tr: Callable[[str], str],
     ensure_text: Callable[[Any], str],
 ) -> None:
-    """Render the schedule list + Add/Delete/Enable-Disable buttons into *target*."""
+    """Render the schedule list with per-row Delete and Enable/Disable buttons."""
     for child in target.winfo_children():
         child.destroy()
 
     rules = scheduler.list_all()
+    title_text = ensure_text(tr("schedule_manager"))
+
     summary = tk.Label(
         target,
-        text=f"共 {len(rules)} 筆排程，使用 ID 可精準刪除與啟用/停用",
+        text=f"共 {len(rules)} 筆排程",
         anchor="w",
         font=font_normal,
         fg="#475569",
     )
     summary.pack(fill=tk.X, pady=(0, 6))
 
-    body = tk.Text(
-        target,
-        height=14,
-        wrap=tk.WORD,
-        font=font_mono,
-        bg="#ffffff",
-        fg="#0f172a",
-        relief=tk.SOLID,
-        bd=1,
-        padx=10,
-        pady=8,
-    )
-    body.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
-    body.tag_configure("item", spacing1=3, spacing3=8)
+    # Scrollable list area
+    list_frame = ttk.Frame(target)
+    list_frame.pack(fill=tk.BOTH, expand=True)
 
-    if not rules:
-        body.insert("1.0", "(no schedules)")
-    else:
-        lines: list[str] = []
-        for idx, rule in enumerate(rules, start=1):
-            lines.append(_format_schedule_line(idx, rule))
-        body.insert("1.0", "\n\n".join(lines), "item")
-    body.configure(state=tk.DISABLED)
+    canvas = tk.Canvas(list_frame, borderwidth=0, highlightthickness=0)
+    scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=canvas.yview)
+    canvas.configure(yscrollcommand=scrollbar.set)
+    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-    actions_frame = ttk.Frame(target)
-    actions_frame.pack(fill=tk.X)
+    inner = ttk.Frame(canvas)
+    win_id = canvas.create_window((0, 0), window=inner, anchor="nw")
 
-    title_text = ensure_text(tr("schedule_manager"))
+    def _on_frame_configure(event: Any) -> None:
+        canvas.configure(scrollregion=canvas.bbox("all"))
+
+    def _on_canvas_configure(event: Any) -> None:
+        canvas.itemconfig(win_id, width=event.width)
+
+    inner.bind("<Configure>", _on_frame_configure)
+    canvas.bind("<Configure>", _on_canvas_configure)
 
     def _refresh() -> None:
         render_schedule_panel(
@@ -195,6 +190,99 @@ def render_schedule_panel(
             ensure_text=ensure_text,
         )
 
+    if not rules:
+        tk.Label(inner, text="(目前沒有排程)", anchor="w", font=font_normal, fg="#9ca3af").pack(
+            fill=tk.X, padx=8, pady=4
+        )
+    else:
+        for idx, rule in enumerate(rules):
+            rule_id = str(rule.get("id") or "")
+            hour = int(rule.get("hour", 0))
+            minute = int(rule.get("minute", 0))
+            recurrence = _format_schedule_recurrence(rule)
+            action_text = _format_schedule_action_summary(rule)
+            enabled = bool(rule.get("enabled", True))
+
+            row = ttk.Frame(inner)
+            row.pack(fill=tk.X, pady=3, padx=4)
+
+            # Index + status badge
+            status_color = "#16a34a" if enabled else "#9ca3af"
+            status_char = "●" if enabled else "○"
+            num_label = tk.Label(
+                row,
+                text=f"{idx + 1:02d}. {status_char}",
+                font=font_normal,
+                fg=status_color,
+                width=6,
+                anchor="e",
+            )
+            num_label.pack(side=tk.LEFT)
+
+            # Schedule info
+            info_text = f"{recurrence} {hour:02d}:{minute:02d}  {action_text}"
+            text_label = tk.Label(
+                row,
+                text=ensure_text(info_text),
+                anchor="w",
+                font=font_normal,
+                fg="#0f172a",
+                bg="#f8fafc",
+                relief=tk.SOLID,
+                bd=1,
+                padx=8,
+                pady=4,
+            )
+            text_label.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 4))
+
+            def _make_toggle(rid: str, current_enabled: bool) -> Callable[[], None]:
+                def _toggle() -> None:
+                    scheduler.set_enabled(rid, not current_enabled)
+                    _refresh()
+                return _toggle
+
+            def _make_delete(rid: str, label: str) -> Callable[[], None]:
+                def _delete() -> None:
+                    if messagebox.askyesno("刪除排程", f"確定要刪除排程「{label}」嗎？", parent=parent):
+                        scheduler.delete(rid)
+                        _refresh()
+                return _delete
+
+            toggle_label = "停用" if enabled else "啟用"
+            toggle_bg = "#fef9c3" if enabled else "#e8f7ee"
+            toggle_fg = "#92400e" if enabled else "#065f46"
+            tk.Button(
+                row,
+                text=toggle_label,
+                command=_make_toggle(rule_id, enabled),
+                font=font_normal,
+                bg=toggle_bg,
+                fg=toggle_fg,
+                activebackground=toggle_bg,
+                activeforeground=toggle_fg,
+                relief=tk.GROOVE,
+                bd=1,
+                padx=6,
+            ).pack(side=tk.RIGHT, padx=(2, 0))
+
+            tk.Button(
+                row,
+                text="刪除",
+                command=_make_delete(rule_id, ensure_text(info_text)),
+                font=font_normal,
+                bg="#fee2e2",
+                fg="#991b1b",
+                activebackground="#fecaca",
+                activeforeground="#991b1b",
+                relief=tk.GROOVE,
+                bd=1,
+                padx=6,
+            ).pack(side=tk.RIGHT, padx=(2, 0))
+
+    # Add button at the bottom
+    add_frame = ttk.Frame(target)
+    add_frame.pack(fill=tk.X, pady=(8, 0))
+
     def _add() -> None:
         raw = simpledialog.askstring(
             title_text,
@@ -205,61 +293,28 @@ def render_schedule_panel(
             return
         parsed = parse_add_payload(raw)
         if parsed is None:
-            messagebox.showerror(title_text, "Invalid add command format.")
+            messagebox.showerror(title_text, "格式錯誤，請確認輸入格式。")
             return
         hour, minute, sched_actions, name = parsed
         rule = scheduler.add(hour, minute, sched_actions, name=name, recurrence="daily")
         if rule is None:
-            messagebox.showwarning(title_text, "Failed to add schedule (limit/conflict).")
+            messagebox.showwarning(title_text, "新增失敗（時間衝突或已達上限）。")
             return
         _refresh()
 
-    def _delete() -> None:
-        raw = simpledialog.askstring(
-            title_text,
-            "輸入 ID 或 HH:MM 刪除排程",
-            parent=parent,
-        )
-        if not raw:
-            return
-        text = raw.strip()
-        if ":" in text:
-            try:
-                hh, mm = text.split(":", 1)
-                deleted = scheduler.delete_by_time(int(hh), int(mm))
-            except Exception:
-                deleted = []
-            if not deleted:
-                messagebox.showinfo(title_text, "No schedules found at that time.")
-                return
-        else:
-            if not scheduler.delete(text):
-                messagebox.showinfo(title_text, "Schedule ID not found.")
-                return
-        _refresh()
-
-    def _toggle() -> None:
-        rule_id = simpledialog.askstring(title_text, "輸入排程 ID", parent=parent)
-        if not rule_id:
-            return
-        mode = simpledialog.askstring(title_text, "輸入 on/off 或留空(切換)", parent=parent)
-        result: bool | None
-        if mode is None or not mode.strip():
-            result = scheduler.toggle(rule_id.strip())
-        else:
-            val = mode.strip().lower()
-            if val not in {"on", "off"}:
-                messagebox.showerror(title_text, "Mode must be on or off.")
-                return
-            result = scheduler.set_enabled(rule_id.strip(), val == "on")
-        if result is None:
-            messagebox.showinfo(title_text, "Schedule ID not found.")
-            return
-        _refresh()
-
-    tk.Button(actions_frame, text="Add", command=_add, font=font_normal).pack(side=tk.LEFT, padx=(0, 8))
-    tk.Button(actions_frame, text="Delete", command=_delete, font=font_normal).pack(side=tk.LEFT, padx=(0, 8))
-    tk.Button(actions_frame, text="Enable/Disable", command=_toggle, font=font_normal).pack(side=tk.LEFT)
+    tk.Button(
+        add_frame,
+        text="新增排程",
+        command=_add,
+        font=font_normal,
+        bg="#e8f7ee",
+        fg="#065f46",
+        activebackground="#d1fae5",
+        activeforeground="#065f46",
+        relief=tk.GROOVE,
+        bd=1,
+        padx=8,
+    ).pack(side=tk.LEFT)
 
 
 def render_rules_panel(

@@ -221,13 +221,19 @@ class ScheduleFastPathParser:
 
     def parse_delete(self, text: str) -> Optional[dict[str, Any]]:
         lowered = text.lower()
-        # 支援中英文刪除排程，id 可為 8 碼英數
+        # ID 刪除（8 碼英數）
         m = re.search(r"刪除([a-z0-9]{8})", lowered)
         if m:
             return {"op": "delete", "id": m.group(1)}
         m = re.search(r"delete\s*([a-z0-9]{8})", lowered)
         if m:
             return {"op": "delete", "id": m.group(1)}
+        # 時間刪除（如「刪除晚上10點的排程」）
+        delete_kw = ("刪除", "移除", "取消", "delete", "remove", "cancel")
+        if any(kw in lowered for kw in delete_kw) and has_time_reference(text):
+            time_result = parse_time(text)
+            if time_result is not None:
+                return {"op": "delete_by_time", "hour": time_result[0], "minute": time_result[1]}
         return None
 
     def parse_toggle(self, text: str) -> Optional[dict[str, Any]]:

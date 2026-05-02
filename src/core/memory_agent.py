@@ -132,6 +132,17 @@ class MemoryAgent:
             json.dumps({"rules": new_rules}, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        # 清除短期記憶中所有含觸發詞的對話（包含學習指令與執行記錄）
+        # 避免 Gemini 從 recent_context 推斷已刪除的規則
+        data = self._read_short()
+        interactions = data.get("interactions", [])
+        cleaned = [
+            i for i in interactions
+            if trigger not in i.get("user", "") and trigger not in i.get("assistant", "")
+        ]
+        if len(cleaned) != len(interactions):
+            data["interactions"] = cleaned
+            self._write_short(data)
         return True
 
     def reset_conversation(self) -> None:

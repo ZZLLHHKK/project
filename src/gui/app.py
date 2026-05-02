@@ -127,7 +127,7 @@ I18N: dict[str, dict[str, str]] = {
         "kitchen": "廚房",
         "living": "客廳",
         "guest": "客房",
-        "habits": "使用者習慣（開發中）",
+        "habits": "使用者習慣",
         "queue": "排程 Queue",
         "schedule_manager": "排程管理",
         "refresh": "重新整理",
@@ -197,7 +197,7 @@ I18N: dict[str, dict[str, str]] = {
         "kitchen": "Kitchen",
         "living": "Living Room",
         "guest": "Guest Room",
-        "habits": "User Habits (Coming Soon)",
+        "habits": "User Habits",
         "queue": "Schedule Queue",
         "schedule_manager": "Schedule Manager",
         "refresh": "Refresh",
@@ -219,12 +219,12 @@ WINDOW_TITLE_ASCII = "Smart Home Console"
 WINDOW_TITLE_SUFFIXES = {
     "zh": {
         "家具狀態": "Device States",
-        "使用者習慣（開發中）": "User Habits",
+        "使用者習慣": "User Habits",
         "排程 Queue": "Schedule Queue",
     },
     "en": {
         "Device States": "Device States",
-        "User Habits (Coming Soon)": "User Habits",
+        "User Habits": "User Habits",
         "Schedule Queue": "Schedule Queue",
     },
 }

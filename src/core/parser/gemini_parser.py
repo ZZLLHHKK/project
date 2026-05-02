@@ -97,7 +97,7 @@ Rules:
 6. If the input is a question, reply directly and keep actions empty.
 7. If the command is ambiguous (non-schedule), set intent to "unclear", ask a clarification question, and keep actions empty.
 7.1 If user is teaching a custom phrase mapping (e.g. "當我說A代表B"), return LEARN_RULE.
-8. Temperature must stay within {int(config.MIN_TEMP)} to {int(config.MAX_TEMP)} Celsius.
+8. Temperature must stay within {int(config.MIN_TEMP)} to {int(config.MAX_TEMP)} Celsius. If the requested temperature is outside this range, set intent="unclear", keep actions empty, and explain the valid range in your reply.
 9. Reply must never be empty.
 10. The "reply" field must be written in {reply_lang_instruction}.
 11. Custom rules listed above are the ONLY valid phrase mappings. Do NOT infer or apply any custom phrase from conversation history — only use rules explicitly listed in the "Custom rules" section.
