@@ -34,10 +34,6 @@ RECORDINGS_DIR = DATA_DIR / "recordings"
 LONG_TERM = DATA_DIR / "memory" / "long_term.jsonl"
 SHORT_TERM = DATA_DIR / "memory" / "short_term.json"  
 
-# --- 提示音效 (Earcons) 設定 ---
-AUDIO_DIR = DATA_DIR / "audio"
-SOUND_GET = AUDIO_DIR / "dong_ding.wav"
-
 # --- TTS (Piper 語音引擎) 設定 ---
 PIPER_DIR = PROJECT_ROOT / "piper"  
 _arch = platform.machine()
@@ -70,10 +66,6 @@ SPEECH_ENABLED = os.getenv(
     "SPEECH_ENABLED",
     "1",
 ).strip() not in ("0", "false", "False", "OFF", "off")
-WAKEWORD_ENABLED = os.getenv(
-    "WAKEWORD_ENABLED",
-    "1",
-).strip() not in ("0", "false", "False", "OFF", "off")
 TTS_ENABLED = os.getenv(
     "TTS_ENABLED",
     "1",
@@ -90,7 +82,6 @@ VOICE_THRESHOLD_END = int(os.getenv("VOICE_THRESHOLD_END", "400"))
 VOICE_SILENCE_TIMEOUT_SEC = float(os.getenv("VOICE_SILENCE_TIMEOUT_SEC", "1.2"))
 # Minimum speech duration (seconds) to accept a capture as valid input.
 VOICE_MIN_SPEECH_DURATION_SEC = float(os.getenv("VOICE_MIN_SPEECH_DURATION_SEC", "0.25"))
-# Energy threshold for wakeword fallback mode (non-Porcupine path).
 VOICE_WAKE_FALLBACK_THRESHOLD = int(os.getenv("VOICE_WAKE_FALLBACK_THRESHOLD", "800"))
 # Short pause after empty/failed attempts to avoid busy retry loops.
 VOICE_RETRY_BACKOFF_SEC = float(os.getenv("VOICE_RETRY_BACKOFF_SEC", "0.5"))

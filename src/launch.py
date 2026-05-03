@@ -11,13 +11,11 @@ def _apply_runtime_defaults(mode: str) -> None:
     if runtime_mode == "desktop":
         os.environ.setdefault("DHT11_ENABLED", "0")
         os.environ.setdefault("SPEECH_ENABLED", "1")
-        os.environ.setdefault("WAKEWORD_ENABLED", "0")
         os.environ.setdefault("TTS_ENABLED", "1")
         return
 
     os.environ.setdefault("DHT11_ENABLED", "1")
     os.environ.setdefault("SPEECH_ENABLED", "1")
-    os.environ.setdefault("WAKEWORD_ENABLED", "1")
     os.environ.setdefault("TTS_ENABLED", "1")
 
 

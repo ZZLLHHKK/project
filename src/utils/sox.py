@@ -80,18 +80,6 @@ def record_with_sox(
     except FileNotFoundError:
         print("SoX 未安裝，請執行：sudo apt install sox libsox-fmt-all")
         return ""
-    
-# analyze part
-from src.utils.config import SOUND_GET
-
-
-def play_notification(wav_path: Path):
-    """小工具：播放提示音效"""
-    if wav_path.exists():
-        # -q 代表靜音模式，避免在終端機噴一堆播放資訊
-        subprocess.run(["aplay", "-q", str(wav_path)], check=False)
-    else:
-        print(f"[警告] 找不到音效檔: {wav_path}")
 
 
 # 完整語音轉文字流程：
@@ -120,9 +108,6 @@ def stt_pipeline(
     if not wav_path:
         #print("錄音失敗，無法繼續轉錄")
         return ""
-
-    # --- 👇錄音一結束，馬上播放「咚」👇 ---
-    play_notification(SOUND_GET)
 
     # 步驟2：轉錄
     # 啟動動畫背景小精靈

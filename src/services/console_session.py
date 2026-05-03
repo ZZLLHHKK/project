@@ -239,11 +239,8 @@ class ConsoleSessionService:
         speech: Any,
         device: DeviceController,
         speech_enabled: bool,
-        wakeword_enabled: bool,
         tts_enabled: bool,
         sensors_enabled: bool,
-        wait_for_wake_word: Callable[[], bool] | None,
-        has_wakeword_engine: bool,
         scheduler: ScheduleManager | None = None,
     ) -> None:
         self.state = state
@@ -251,11 +248,8 @@ class ConsoleSessionService:
         self.speech = speech
         self.device = device
         self.speech_enabled = speech_enabled
-        self.wakeword_enabled = wakeword_enabled
         self.tts_enabled = tts_enabled
         self.sensors_enabled = sensors_enabled
-        self.wait_for_wake_word = wait_for_wake_word
-        self.has_wakeword_engine = has_wakeword_engine
         self.scheduler = scheduler
         self._schedule_stop_event = threading.Event()
         self._schedule_thread: threading.Thread | None = None
@@ -275,7 +269,6 @@ class ConsoleSessionService:
         print_dashboard(self.state)
         print_controls()
 
-        active_wakeword_engine = self.has_wakeword_engine and self.wakeword_enabled and self.speech_enabled
         capture_status = detect_capture_status(self.speech)
         print(
             f"[啟動狀態] standby_input=keyboard, "
@@ -301,7 +294,7 @@ class ConsoleSessionService:
                     if self.sensors_enabled:
                         self._update_environment()
 
-                    user_input, active_wakeword_engine = self._collect_input(active_wakeword_engine)
+                    user_input = self._collect_input()
                     clean_input = (user_input or "").strip()
                     if not clean_input:
                         continue
@@ -346,22 +339,10 @@ class ConsoleSessionService:
         if env_hum is not None:
             self.state.ambient_humidity = env_hum
 
-    def _collect_input(self, active_wakeword_engine: bool) -> tuple[str, bool]:
-        if self.is_standby and active_wakeword_engine and self.wait_for_wake_word is not None:
-            print("\n[🟡 待機中] 麥克風喚醒詞監聽中 (HI MY PI)... ", end="", flush=True)
-            detected = self.wait_for_wake_word()
-            if detected:
-                print("[已偵測到喚醒詞]")
-                return "hi my pi", active_wakeword_engine
-
-            active_wakeword_engine = False
-            print("\n⚠️ 喚醒詞引擎不可用，改用鍵盤輸入模式。")
-            user_input, _ = collect_text_input(self.speech, is_standby=True, use_speech=False)
-            return user_input, active_wakeword_engine
-
+    def _collect_input(self) -> str:
         if self.is_standby:
             user_input, _ = collect_text_input(self.speech, is_standby=True, use_speech=False)
-            return user_input, active_wakeword_engine
+            return user_input
 
         user_input, speech_ok = collect_text_input(
             self.speech,
@@ -371,7 +352,7 @@ class ConsoleSessionService:
         if not speech_ok and self.use_command_speech_input:
             self.use_command_speech_input = False
             print("⚠️ 命令語音辨識失敗，已自動降級為鍵盤輸入模式。")
-        return user_input, active_wakeword_engine
+        return user_input
 
     def _handle_control_command(self, clean_input: str) -> bool:
         lower_input = clean_input.lower()

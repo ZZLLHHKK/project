@@ -12,7 +12,6 @@ google-generativeai
 
 faster-whisper
 python-Levenshtein
-pvporcupine
 pyaudio
 scipy
 sounddevice

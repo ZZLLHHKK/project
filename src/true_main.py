@@ -7,12 +7,10 @@ RUNTIME_MODE = os.environ.get("RUNTIME_MODE", "hardware").strip().lower()
 if RUNTIME_MODE == "desktop":
     os.environ.setdefault("DHT11_ENABLED", "0")
     os.environ.setdefault("SPEECH_ENABLED", "1")
-    os.environ.setdefault("WAKEWORD_ENABLED", "0")
     os.environ.setdefault("TTS_ENABLED", "1")
 else:
     os.environ.setdefault("DHT11_ENABLED", "1")
     os.environ.setdefault("SPEECH_ENABLED", "1")
-    os.environ.setdefault("WAKEWORD_ENABLED", "1")
     os.environ.setdefault("TTS_ENABLED", "1")
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -35,28 +33,14 @@ def _env_flag(name: str, default: bool) -> bool:
     return value.strip().lower() not in ("0", "false", "off", "no")
 
 
-if _env_flag("WAKEWORD_ENABLED", RUNTIME_MODE != "desktop"):
-    try:
-        from src.utils.wait_wakeword import wait_for_wake_word
-
-        HAS_WAKEWORD_ENGINE = True
-    except Exception:
-        wait_for_wake_word = None  # type: ignore
-        HAS_WAKEWORD_ENGINE = False
-else:
-    wait_for_wake_word = None  # type: ignore
-    HAS_WAKEWORD_ENGINE = False
-
-
 def run_console_app() -> None:
     runtime_mode = os.environ.get("RUNTIME_MODE", "hardware").strip().lower()
     speech_enabled = _env_flag("SPEECH_ENABLED", runtime_mode != "desktop")
-    wakeword_enabled = _env_flag("WAKEWORD_ENABLED", runtime_mode != "desktop")
     tts_enabled = _env_flag("TTS_ENABLED", runtime_mode != "desktop")
     sensors_enabled = _env_flag("DHT11_ENABLED", runtime_mode != "desktop")
 
     print(f"🔧 正在初始化系統... mode={runtime_mode}")
-    print("🖥️ 桌面模式：鍵盤喚醒詞 + 語音命令 + Piper TTS。" if runtime_mode == "desktop" else "🍓 樹莓派模式：使用實體 GPIO 與感測器。")
+    print("🖥️ 桌面模式：語音命令 + Piper TTS。" if runtime_mode == "desktop" else "🍓 樹莓派模式：使用實體 GPIO 與感測器。")
 
     runtime = build_runtime(mode=runtime_mode, with_device=True, setup_device=True)
     state = runtime.state
@@ -68,12 +52,10 @@ def run_console_app() -> None:
         except Exception as exc:
             print(f"⚠️ 語音系統初始化失敗，改用文字模式: {exc}")
             speech_enabled = False
-            wakeword_enabled = False
             tts_enabled = False
     elif speech_enabled or tts_enabled:
         print("⚠️ SpeechProcessor 不可用，已切換為文字模式。")
         speech_enabled = False
-        wakeword_enabled = False
         tts_enabled = False
 
     device = runtime.device
@@ -88,11 +70,8 @@ def run_console_app() -> None:
             speech=speech,
             device=device,
             speech_enabled=speech_enabled,
-            wakeword_enabled=wakeword_enabled,
             tts_enabled=tts_enabled,
             sensors_enabled=sensors_enabled,
-            wait_for_wake_word=wait_for_wake_word,
-            has_wakeword_engine=HAS_WAKEWORD_ENGINE,
             scheduler=scheduler,
         )
         service.run()

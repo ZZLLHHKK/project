@@ -58,18 +58,12 @@ from src.utils.config import (
     VOICE_ONLY_MODE,
     VOICE_RETRY_BACKOFF_SEC,
     VOICE_WAKE_FALLBACK_THRESHOLD,
-    WAKEWORD_ENABLED,
 )
 
 try:
     from src.audio.speech_processor import SpeechProcessor
 except Exception:
     SpeechProcessor = None  # type: ignore[assignment]
-
-try:
-    from src.utils.wait_wakeword import wait_for_wake_word
-except Exception:
-    wait_for_wake_word = None  # type: ignore[assignment]
 
 
 I18N: dict[str, dict[str, str]] = {
@@ -79,12 +73,10 @@ I18N: dict[str, dict[str, str]] = {
         "idle": "Idle",
         "processing": "Thinking...",
         "speaking": "Speaking...",
-        "waiting_wake_word": "Waiting for wake word...",
         "listening": "Listening...",
         "ready_detail": "Idle",
         "processing_detail": "Thinking...",
         "speaking_detail": "Speaking...",
-        "waiting_wake_word_detail": "Waiting for wake word...",
         "listening_detail": "Listening...",
         "status_prefix": "狀態",
         "voice_mode_title": "Voice Mode",
@@ -276,7 +268,6 @@ class DashboardApp(tk.Tk):
         self.rules_path = Path(RULES_FILE)
         self.chat_history: list[tuple[str, str]] = []
         self.speech_enabled = bool(SPEECH_ENABLED)
-        self.wakeword_enabled = bool(WAKEWORD_ENABLED)
         self.voice_only_mode = bool(VOICE_ONLY_MODE)
         self.show_debug_text_input = bool(SHOW_DEBUG_TEXT_INPUT)
         self._text_input_visible = (not self.voice_only_mode) or self.show_debug_text_input
@@ -285,7 +276,6 @@ class DashboardApp(tk.Tk):
         self._voice_stop_event = threading.Event()
         self._voice_thread: threading.Thread | None = None
         self._speech = None
-        self._wakeword_backend_available = self.wakeword_enabled and callable(wait_for_wake_word)
         if self.speech_enabled and SpeechProcessor is not None:
             try:
                 self._speech = SpeechProcessor()
@@ -967,11 +957,6 @@ class DashboardApp(tk.Tk):
     def _wait_for_wake(self) -> bool:
         if self._voice_stop_event.is_set():
             return False
-        if self._wakeword_backend_available and callable(wait_for_wake_word):
-            ok = bool(wait_for_wake_word())
-            if not ok:
-                self._wakeword_backend_available = False
-            return ok
         return self._detect_wake_by_energy(timeout_seconds=3)
 
     def _start_voice_loop(self) -> None:
