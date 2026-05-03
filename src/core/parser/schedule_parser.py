@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any, Optional
 
 from src.core.date_parser import DateParser
+from src.core.parser.fastpath_parser import _normalize_number_words
 
 _PERIOD_AM = ("上午", "早上", "早晨", "凌晨")
 _PERIOD_PM = ("下午", "傍晚")
@@ -216,6 +217,7 @@ class ScheduleFastPathParser:
     """Fastpath parser for schedule add/manage commands."""
 
     def parse_add(self, text: str, lang: str = "zh") -> Optional[dict[str, Any]]:
+        text = _normalize_number_words(text)
         # 只要有明確時間就視為 schedule add，不需 schedule signal
         if not has_time_reference(text):
             return None

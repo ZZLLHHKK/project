@@ -65,6 +65,38 @@ LOC_MAP = {
     config.LOC_GUEST: ("客房", "guest", "guest room"),
 }
 
+_ZH_NUM_MAP = [
+    ("二十三", "23"), ("二十二", "22"), ("二十一", "21"), ("二十", "20"),
+    ("十九", "19"), ("十八", "18"), ("十七", "17"), ("十六", "16"),
+    ("十五", "15"), ("十四", "14"), ("十三", "13"), ("十二", "12"), ("十一", "11"),
+    ("十", "10"),
+    ("九", "9"), ("八", "8"), ("七", "7"), ("六", "6"), ("五", "5"),
+    ("四", "4"), ("三", "3"), ("二", "2"), ("一", "1"), ("零", "0"),
+]
+_EN_NUM_RE = re.compile(
+    r"\b(twenty-three|twenty-two|twenty-one|twenty|nineteen|eighteen|seventeen|"
+    r"sixteen|fifteen|fourteen|thirteen|twelve|eleven|ten|nine|eight|seven|six|"
+    r"five|four|three|two|one|zero|thirty|forty-five|forty|fifty-nine|fifty|sixty)\b",
+    re.IGNORECASE,
+)
+_EN_NUM_VALS = {
+    "twenty-three": "23", "twenty-two": "22", "twenty-one": "21", "twenty": "20",
+    "nineteen": "19", "eighteen": "18", "seventeen": "17", "sixteen": "16",
+    "fifteen": "15", "fourteen": "14", "thirteen": "13", "twelve": "12", "eleven": "11",
+    "ten": "10", "nine": "9", "eight": "8", "seven": "7", "six": "6",
+    "five": "5", "four": "4", "three": "3", "two": "2", "one": "1", "zero": "0",
+    "thirty": "30", "forty-five": "45", "forty": "40", "fifty-nine": "59", "fifty": "50",
+    "sixty": "60",
+}
+
+
+def _normalize_number_words(text: str) -> str:
+    """Convert spoken number words (Chinese/English) to digits."""
+    for zh, digit in _ZH_NUM_MAP:
+        text = text.replace(zh, digit)
+    text = _EN_NUM_RE.sub(lambda m: _EN_NUM_VALS[m.group(0).lower()], text)
+    return text
+
 
 def _action_key(action: dict[str, Any]) -> str:
     t = str(action.get("type", "")).upper()
@@ -242,6 +274,7 @@ class FastPathParser:
             return None
 
         rewritten = self.apply_rules(text, rules or [])
+        rewritten = _normalize_number_words(rewritten)
 
         # 疑問句不應被當成指令執行
         if _QUESTION_TAIL_RE.search(rewritten) or any(w in rewritten.lower() for w in _QUESTION_WORDS):

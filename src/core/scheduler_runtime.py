@@ -140,8 +140,24 @@ class SchedulerRuntime:
         with self._runtime_lock:
             self._executed_today[schedule_id] = today
 
+    def _sync_dht11(self) -> None:
+        try:
+            device_controller = getattr(self.agent, "device_controller", None)
+            state = getattr(self.agent, "state", None)
+            if device_controller is None or state is None:
+                return
+            t = device_controller.get_temp()
+            h = device_controller.get_humidity()
+            if t is not None:
+                state.ambient_temp = int(t)
+            if h is not None:
+                state.ambient_humidity = round(h)
+        except Exception as exc:
+            logger.debug("dht11 sync failed: %s", exc)
+
     def _run_loop(self) -> None:
         while not self._stop_event.is_set():
+            self._sync_dht11()
             now = datetime.now()
             today = now.strftime("%Y-%m-%d")
 
