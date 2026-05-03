@@ -1163,6 +1163,7 @@ class DashboardApp(tk.Tk):
             font_title=self.font_title,
             font_normal=self.font_normal,
             font_mono=self.font_mono,
+            lang=self.lang.get(),
         )
 
     def _open_habits(self) -> None:
@@ -1173,6 +1174,7 @@ class DashboardApp(tk.Tk):
             font_title=self.font_title,
             font_normal=self.font_normal,
             ensure_text=self._ensure_text,
+            lang=self.lang.get(),
         )
 
     def _open_text_window(self, title: str, content: str) -> None:

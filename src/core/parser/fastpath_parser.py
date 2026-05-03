@@ -48,7 +48,14 @@ _TIME_NUM_RE = re.compile(r"\d+\s*(?:點|時|分|秒)")
 _QUESTION_TAIL_RE = re.compile(r"[嗎？?]\s*$")
 _QUESTION_WORDS = ("是否", "有沒有", "對嗎", "是嗎", "嗎", "how many", "what is", "what's")
 # 相對時間句（如「1分鐘之後」「30秒後」）交給 Gemini 處理成排程
-_RELATIVE_TIME_RE = re.compile(r"\d+\s*(?:分鐘|秒鐘|秒|小時|分)\s*(?:後|之後|later)", re.IGNORECASE)
+_RELATIVE_TIME_RE = re.compile(
+    r"(?:"
+    r"\d+\s*(?:分鐘|秒鐘|秒|小時|分)\s*(?:後|之後)"
+    r"|in\s+\d+\s*(?:minutes?|seconds?|hours?|mins?|secs?|hrs?)"
+    r"|\d+\s*(?:minutes?|seconds?|hours?|mins?|secs?|hrs?)\s*(?:later|from\s+now)"
+    r")",
+    re.IGNORECASE,
+)
 
 KW_ON = ("開", "打開", "開啟", "on", "turn on", "open", "start")
 KW_OFF = ("關", "關掉", "關閉", "off", "turn off", "close", "stop")
