@@ -1316,3 +1316,6 @@ def run_gui() -> None:
     app = DashboardApp()
     print("[GUI] entering mainloop")
     app.mainloop()
+    
+if __name__ == "__main__":
+    run_gui()
