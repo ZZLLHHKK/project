@@ -265,6 +265,7 @@ class ScheduleFastPathParser:
         return None
 
     def parse_delete(self, text: str) -> Optional[dict[str, Any]]:
+        text = _normalize_number_words(text)
         lowered = text.lower()
         # ID 刪除（8 碼英數）
         m = re.search(r"刪除([a-z0-9]{8})", lowered)
@@ -299,6 +300,7 @@ class ScheduleFastPathParser:
         return None
 
     def parse_manage(self, text: str) -> Optional[dict[str, Any]]:
+        text = _normalize_number_words(text)
         lowered = text.lower()
         if any(kw in lowered for kw in _DATE_QUERY_SIGNALS):
             date_m = _DATE_RE.search(text)
