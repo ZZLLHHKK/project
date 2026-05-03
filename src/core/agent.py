@@ -466,7 +466,7 @@ class SmartHomeAgent:
 
         # Step 3: schedule fastpath minimal CRUD
         # 1. add
-        parsed_add = self.schedule_parser.parse_add(clean_input)
+        parsed_add = self.schedule_parser.parse_add(clean_input, lang=lang)
         if parsed_add is not None:
             rule = self.scheduler.add(
                 hour=parsed_add["hour"],

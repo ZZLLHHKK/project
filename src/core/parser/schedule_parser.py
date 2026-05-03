@@ -182,26 +182,40 @@ def has_period_only_no_hour(text: str) -> bool:
     return not has_time_reference(text)
 
 
-def _make_name(hour: int, minute: int, actions: list[dict[str, Any]]) -> str:
-    loc_label = {"LIVING": "客廳", "KITCHEN": "廚房", "GUEST": "客房"}
-    parts: list[str] = []
-    for a in actions:
-        t = str(a.get("type", "")).upper()
-        if t == "FAN":
-            parts.append("風扇" + ("開" if a.get("state") == "on" else "關"))
-        elif t == "LED":
-            loc = loc_label.get(str(a.get("location", "")).upper(), "燈")
-            parts.append(loc + "燈" + ("開" if a.get("state") == "on" else "關"))
-        elif t == "SET_TEMP":
-            parts.append(f"溫度設定 {a.get('value')}°C")
-    label = "、".join(parts) if parts else "排程"
+def _make_name(hour: int, minute: int, actions: list[dict[str, Any]], lang: str = "zh") -> str:
+    if lang == "en":
+        loc_label = {"LIVING": "living", "KITCHEN": "kitchen", "GUEST": "guest"}
+        parts: list[str] = []
+        for a in actions:
+            t = str(a.get("type", "")).upper()
+            if t == "FAN":
+                parts.append("fan " + ("on" if a.get("state") == "on" else "off"))
+            elif t == "LED":
+                loc = loc_label.get(str(a.get("location", "")).upper(), "light")
+                parts.append(f"{loc} light " + ("on" if a.get("state") == "on" else "off"))
+            elif t == "SET_TEMP":
+                parts.append(f"temp {a.get('value')}°C")
+        label = ", ".join(parts) if parts else "schedule"
+    else:
+        loc_label_zh = {"LIVING": "客廳", "KITCHEN": "廚房", "GUEST": "客房"}
+        parts = []
+        for a in actions:
+            t = str(a.get("type", "")).upper()
+            if t == "FAN":
+                parts.append("風扇" + ("開" if a.get("state") == "on" else "關"))
+            elif t == "LED":
+                loc = loc_label_zh.get(str(a.get("location", "")).upper(), "燈")
+                parts.append(loc + "燈" + ("開" if a.get("state") == "on" else "關"))
+            elif t == "SET_TEMP":
+                parts.append(f"溫度設定 {a.get('value')}°C")
+        label = "、".join(parts) if parts else "排程"
     return f"{hour:02d}:{minute:02d} {label}"
 
 
 class ScheduleFastPathParser:
     """Fastpath parser for schedule add/manage commands."""
 
-    def parse_add(self, text: str) -> Optional[dict[str, Any]]:
+    def parse_add(self, text: str, lang: str = "zh") -> Optional[dict[str, Any]]:
         # 只要有明確時間就視為 schedule add，不需 schedule signal
         if not has_time_reference(text):
             return None
@@ -232,7 +246,7 @@ class ScheduleFastPathParser:
             if key in parsed:
                 extra[key] = parsed[key]
 
-        name = _make_name(hour, minute, actions)
+        name = _make_name(hour, minute, actions, lang=lang)
         return {"hour": hour, "minute": minute, "actions": actions, "name": name, **extra}
 
     def parse_list(self, text: str) -> Optional[dict[str, Any]]:
