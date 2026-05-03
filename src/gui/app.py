@@ -262,8 +262,9 @@ class DashboardApp(tk.Tk):
             gui_with_device = _is_raspberry_pi()
         else:
             gui_with_device = env_gui_with_device.strip().lower() not in ("0", "false", "off", "no")
+        runtime_mode = "hardware" if gui_with_device else "desktop"
         self.runtime = build_runtime(
-            mode="desktop",
+            mode=runtime_mode,
             memory_keep=self.chat_limit,
             with_device=gui_with_device,
             setup_device=gui_with_device,
@@ -341,6 +342,11 @@ class DashboardApp(tk.Tk):
     def _on_closing(self) -> None:
         self._voice_stop_event.set()
         SchedulerRuntime.stop()
+        if self.runtime.device is not None:
+            try:
+                self.runtime.device.cleanup()
+            except Exception:
+                pass
         self.destroy()
     def tr(self, key: str) -> str:
         return I18N[self.lang.get()].get(key, key)
