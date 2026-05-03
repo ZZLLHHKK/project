@@ -2,16 +2,170 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 import tkinter as tk
-from tkinter import messagebox, simpledialog
-from tkinter import font as tkfont
-from tkinter import ttk
+from tkinter import messagebox
 from typing import Any, Callable
 
-from src.gui.popup_views import create_panel_popup, create_popup_shell
+import customtkinter as ctk
 
 
 def _t(lang: str, zh: str, en: str) -> str:
     return en if lang == "en" else zh
+
+
+def _c(colors: dict | None, key: str, fallback: str) -> str:
+    if colors and key in colors:
+        return colors[key]
+    return fallback
+
+
+def _center_on_parent(dlg: ctk.CTkToplevel, parent: tk.Misc, w: int, h: int) -> None:
+    dlg.update_idletasks()
+    px = parent.winfo_rootx()
+    py = parent.winfo_rooty()
+    pw = parent.winfo_width()
+    ph = parent.winfo_height()
+    x = px + (pw - w) // 2
+    y = py + (ph - h) // 2
+    dlg.geometry(f"{w}x{h}+{x}+{y}")
+
+
+def _make_dialog_base(
+    parent: tk.Misc,
+    title: str,
+    w: int,
+    h: int,
+    colors: dict | None,
+) -> tuple[ctk.CTkToplevel, str, str, str, str]:
+    dlg = ctk.CTkToplevel(parent)
+    dlg.title(title)
+    dlg.resizable(False, False)
+    dlg.grab_set()
+    dlg.lift()
+    dlg.focus_force()
+    _center_on_parent(dlg, parent, w, h)
+
+    bg = _c(colors, "panel_bg", "#1E1E1E")
+    accent = _c(colors, "accent", "#3A86FF")
+    text_primary = _c(colors, "text_primary", "#F0F0F0")
+    input_bg = _c(colors, "input_bg", "#2A2A2A")
+    dlg.configure(fg_color=bg)
+    return dlg, bg, accent, text_primary, input_bg
+
+
+def _add_buttons(
+    dlg: ctk.CTkToplevel,
+    font: Any,
+    accent: str,
+    text_primary: str,
+    on_ok: Callable[[], None],
+    on_cancel: Callable[[], None],
+) -> None:
+    btn_row = ctk.CTkFrame(dlg, fg_color="transparent")
+    btn_row.pack(fill="x", padx=20, pady=(0, 16))
+    ctk.CTkButton(btn_row, text="OK", font=font, width=90, height=36,
+                  fg_color=accent, corner_radius=8, command=on_ok).pack(side="right", padx=(8, 0))
+    ctk.CTkButton(btn_row, text="Cancel", font=font, width=90, height=36,
+                  fg_color="transparent", border_width=1,
+                  text_color=text_primary, corner_radius=8, command=on_cancel).pack(side="right")
+
+
+def _ctk_ask_schedule(
+    parent: tk.Misc,
+    title: str,
+    lang: str,
+    *,
+    font: Any,
+    colors: dict | None = None,
+) -> str | None:
+    """Schedule add dialog with aligned format hint rows."""
+    result: list[str | None] = [None]
+    W, H = 540, 260
+
+    dlg, bg, accent, text_primary, input_bg = _make_dialog_base(parent, title, W, H, colors)
+    hint_color = _c(colors, "text_secondary", "#A0A0A0")
+
+    # Format hint block — separate labels keep alignment clean
+    hint_header = _t(lang, "格式：", "Format:")
+    hint_rows = [
+        "HH:MM  fan  on | off",
+        "HH:MM  led  living | kitchen | guest  on | off",
+        "HH:MM  temp  <" + _t(lang, "數值", "value") + ">",
+    ]
+
+    ctk.CTkLabel(dlg, text=hint_header, font=font,
+                 text_color=hint_color, anchor="w").pack(padx=20, pady=(18, 2), anchor="w")
+
+    hint_frame = ctk.CTkFrame(dlg, fg_color=_c(colors, "card_bg", "#252525"), corner_radius=6)
+    hint_frame.pack(fill="x", padx=20, pady=(0, 10))
+    for row_text in hint_rows:
+        ctk.CTkLabel(hint_frame, text=row_text, font=font,
+                     text_color=hint_color, anchor="w").pack(padx=12, pady=2, anchor="w")
+
+    entry = ctk.CTkEntry(dlg, font=font, fg_color=input_bg,
+                         text_color=text_primary, border_color=accent,
+                         height=40, corner_radius=8, placeholder_text="e.g. 08:00 fan on")
+    entry.pack(fill="x", padx=20, pady=(0, 12))
+    entry.focus()
+
+    def _ok(event: Any = None) -> None:
+        result[0] = entry.get()
+        dlg.destroy()
+
+    def _cancel(event: Any = None) -> None:
+        dlg.destroy()
+
+    _add_buttons(dlg, font, accent, text_primary, _ok, _cancel)
+    entry.bind("<Return>", _ok)
+    dlg.bind("<Escape>", _cancel)
+    dlg.wait_window()
+    return result[0]
+
+
+def _ctk_ask_rule(
+    parent: tk.Misc,
+    lang: str,
+    *,
+    font: Any,
+    colors: dict | None = None,
+) -> tuple[str, str] | None:
+    """Modal two-field dialog for adding a custom rule."""
+    result: list[tuple[str, str] | None] = [None]
+    W, H = 520, 260
+
+    title = _t(lang, "新增規則", "Add Rule")
+    dlg, bg, accent, text_primary, input_bg = _make_dialog_base(parent, title, W, H, colors)
+    text_secondary = _c(colors, "text_secondary", "#A0A0A0")
+
+    ctk.CTkLabel(dlg, text=_t(lang, "觸發詞（你會說的話）：", "Trigger phrase (what you say):"),
+                 font=font, text_color=text_secondary, anchor="w").pack(padx=20, pady=(20, 4), anchor="w")
+    trigger_entry = ctk.CTkEntry(dlg, font=font, fg_color=input_bg,
+                                 text_color=text_primary, border_color=accent,
+                                 height=40, corner_radius=8)
+    trigger_entry.pack(fill="x", padx=20, pady=(0, 12))
+    trigger_entry.focus()
+
+    ctk.CTkLabel(dlg, text=_t(lang, "代表的動作或語意：", "What it means / action:"),
+                 font=font, text_color=text_secondary, anchor="w").pack(padx=20, pady=(0, 4), anchor="w")
+    meaning_entry = ctk.CTkEntry(dlg, font=font, fg_color=input_bg,
+                                 text_color=text_primary, border_color=accent,
+                                 height=40, corner_radius=8)
+    meaning_entry.pack(fill="x", padx=20, pady=(0, 12))
+
+    def _ok(event: Any = None) -> None:
+        t = trigger_entry.get().strip()
+        m = meaning_entry.get().strip()
+        if t and m:
+            result[0] = (t, m)
+        dlg.destroy()
+
+    def _cancel(event: Any = None) -> None:
+        dlg.destroy()
+
+    _add_buttons(dlg, font, accent, text_primary, _ok, _cancel)
+    meaning_entry.bind("<Return>", _ok)
+    dlg.bind("<Escape>", _cancel)
+    dlg.wait_window()
+    return result[0]
 
 
 def _format_schedule_recurrence(rule: dict[str, Any], lang: str = "zh") -> str:
@@ -135,15 +289,16 @@ def parse_add_payload(
 
 
 def render_schedule_panel(
-    target: ttk.Frame,
+    target: ctk.CTkFrame,
     *,
     scheduler: Any,
-    parent: tk.Tk,
-    font_mono: tkfont.Font,
-    font_normal: tkfont.Font,
+    parent: tk.Misc,
+    font_mono: Any,
+    font_normal: Any,
     tr: Callable[[str], str],
     ensure_text: Callable[[Any], str],
     lang: str = "zh",
+    colors: dict | None = None,
 ) -> None:
     for child in target.winfo_children():
         child.destroy()
@@ -151,35 +306,22 @@ def render_schedule_panel(
     rules = scheduler.list_all()
     title_text = ensure_text(tr("schedule_manager"))
 
-    summary = tk.Label(
+    text_secondary = _c(colors, "text_secondary", "#475569")
+    text_primary = _c(colors, "text_primary", "#0f172a")
+    card_bg = _c(colors, "card_bg", "#f8fafc")
+    card_border = _c(colors, "card_border", "#e2e8f0")
+    hint = _c(colors, "hint", "#9ca3af")
+
+    ctk.CTkLabel(
         target,
         text=_t(lang, f"共 {len(rules)} 筆排程", f"{len(rules)} schedule(s)"),
         anchor="w",
         font=font_normal,
-        fg="#475569",
-    )
-    summary.pack(fill=tk.X, pady=(0, 6))
+        text_color=text_secondary,
+    ).pack(fill="x", pady=(0, 6))
 
-    list_frame = ttk.Frame(target)
-    list_frame.pack(fill=tk.BOTH, expand=True)
-
-    canvas = tk.Canvas(list_frame, borderwidth=0, highlightthickness=0)
-    scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=canvas.yview)
-    canvas.configure(yscrollcommand=scrollbar.set)
-    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-    canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-    inner = ttk.Frame(canvas)
-    win_id = canvas.create_window((0, 0), window=inner, anchor="nw")
-
-    def _on_frame_configure(event: Any) -> None:
-        canvas.configure(scrollregion=canvas.bbox("all"))
-
-    def _on_canvas_configure(event: Any) -> None:
-        canvas.itemconfig(win_id, width=event.width)
-
-    inner.bind("<Configure>", _on_frame_configure)
-    canvas.bind("<Configure>", _on_canvas_configure)
+    scroll_frame = ctk.CTkScrollableFrame(target, fg_color="transparent")
+    scroll_frame.pack(fill="both", expand=True)
 
     def _refresh() -> None:
         render_schedule_panel(
@@ -191,14 +333,17 @@ def render_schedule_panel(
             tr=tr,
             ensure_text=ensure_text,
             lang=lang,
+            colors=colors,
         )
 
     if not rules:
-        tk.Label(
-            inner,
+        ctk.CTkLabel(
+            scroll_frame,
             text=_t(lang, "(目前沒有排程)", "(No schedules)"),
-            anchor="w", font=font_normal, fg="#9ca3af",
-        ).pack(fill=tk.X, padx=8, pady=4)
+            anchor="w",
+            font=font_normal,
+            text_color=hint,
+        ).pack(fill="x", padx=8, pady=4)
     else:
         for idx, rule in enumerate(rules):
             rule_id = str(rule.get("id") or "")
@@ -208,33 +353,28 @@ def render_schedule_panel(
             action_text = _format_schedule_action_summary(rule, lang)
             enabled = bool(rule.get("enabled", True))
 
-            row = ttk.Frame(inner)
-            row.pack(fill=tk.X, pady=3, padx=4)
+            row = ctk.CTkFrame(scroll_frame, fg_color=card_bg, corner_radius=6)
+            row.pack(fill="x", pady=3, padx=4)
 
             status_color = "#16a34a" if enabled else "#9ca3af"
             status_char = "●" if enabled else "○"
-            tk.Label(
+            ctk.CTkLabel(
                 row,
                 text=f"{idx + 1:02d}. {status_char}",
                 font=font_normal,
-                fg=status_color,
-                width=6,
+                text_color=status_color,
+                width=52,
                 anchor="e",
-            ).pack(side=tk.LEFT)
+            ).pack(side="left", padx=(6, 0), pady=6)
 
             info_text = f"{recurrence} {hour:02d}:{minute:02d}  {action_text}"
-            tk.Label(
+            ctk.CTkLabel(
                 row,
                 text=ensure_text(info_text),
                 anchor="w",
                 font=font_normal,
-                fg="#0f172a",
-                bg="#f8fafc",
-                relief=tk.SOLID,
-                bd=1,
-                padx=8,
-                pady=4,
-            ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 4))
+                text_color=text_primary,
+            ).pack(side="left", fill="x", expand=True, padx=(4, 4), pady=6)
 
             def _make_toggle(rid: str, current_enabled: bool) -> Callable[[], None]:
                 def _toggle() -> None:
@@ -254,44 +394,40 @@ def render_schedule_panel(
                 return _delete
 
             toggle_label = _t(lang, "停用" if enabled else "啟用", "Disable" if enabled else "Enable")
-            toggle_bg = "#fef9c3" if enabled else "#e8f7ee"
             toggle_fg = "#92400e" if enabled else "#065f46"
-            tk.Button(
+            toggle_hover = "#fef3c7" if enabled else "#d1fae5"
+            toggle_bg = "#fef9c3" if enabled else "#e8f7ee"
+            ctk.CTkButton(
                 row,
                 text=toggle_label,
                 command=_make_toggle(rule_id, enabled),
                 font=font_normal,
-                bg=toggle_bg,
-                fg=toggle_fg,
-                activebackground=toggle_bg,
-                activeforeground=toggle_fg,
-                relief=tk.GROOVE,
-                bd=1,
-                padx=6,
-            ).pack(side=tk.RIGHT, padx=(2, 0))
+                fg_color=toggle_bg,
+                text_color=toggle_fg,
+                hover_color=toggle_hover,
+                corner_radius=6,
+                height=28,
+                width=60,
+            ).pack(side="right", padx=(2, 4), pady=6)
 
-            tk.Button(
+            ctk.CTkButton(
                 row,
                 text=_t(lang, "刪除", "Delete"),
                 command=_make_delete(rule_id, ensure_text(info_text)),
                 font=font_normal,
-                bg="#fee2e2",
-                fg="#991b1b",
-                activebackground="#fecaca",
-                activeforeground="#991b1b",
-                relief=tk.GROOVE,
-                bd=1,
-                padx=6,
-            ).pack(side=tk.RIGHT, padx=(2, 0))
+                fg_color="#fee2e2",
+                text_color="#991b1b",
+                hover_color="#fecaca",
+                corner_radius=6,
+                height=28,
+                width=52,
+            ).pack(side="right", padx=(2, 0), pady=6)
 
-    add_frame = ttk.Frame(target)
-    add_frame.pack(fill=tk.X, pady=(8, 0))
+    add_bar = ctk.CTkFrame(target, fg_color="transparent")
+    add_bar.pack(fill="x", pady=(8, 0))
 
     def _add() -> None:
-        prompt = _t(lang,
-                    "新增格式: HH:MM fan on|off | HH:MM led living|kitchen|guest on|off | HH:MM temp <value>",
-                    "Format: HH:MM fan on|off | HH:MM led living|kitchen|guest on|off | HH:MM temp <value>")
-        raw = simpledialog.askstring(title_text, prompt, parent=parent)
+        raw = _ctk_ask_schedule(parent, title_text, lang, font=font_normal, colors=colors)
         if not raw:
             return
         parsed = parse_add_payload(raw)
@@ -311,63 +447,52 @@ def render_schedule_panel(
             return
         _refresh()
 
-    tk.Button(
-        add_frame,
+    ctk.CTkButton(
+        add_bar,
         text=_t(lang, "新增排程", "Add Schedule"),
         command=_add,
         font=font_normal,
-        bg="#e8f7ee",
-        fg="#065f46",
-        activebackground="#d1fae5",
-        activeforeground="#065f46",
-        relief=tk.GROOVE,
-        bd=1,
-        padx=8,
-    ).pack(side=tk.LEFT)
+        fg_color=_c(colors, "success", "#2ECC71"),
+        text_color="#ffffff",
+        hover_color="#27AE60",
+        corner_radius=6,
+        height=30,
+        width=120,
+    ).pack(side="left")
 
 
 def render_rules_panel(
-    target: ttk.Frame,
+    target: ctk.CTkFrame,
     *,
     memory: Any,
     parent: tk.Misc,
-    font_normal: tkfont.Font,
+    font_normal: Any,
     ensure_text: Callable[[Any], str],
     lang: str = "zh",
+    colors: dict | None = None,
 ) -> None:
     for child in target.winfo_children():
         child.destroy()
 
     rules = memory.load_rules()
 
-    summary = tk.Label(
+    text_secondary = _c(colors, "text_secondary", "#475569")
+    text_primary = _c(colors, "text_primary", "#0f172a")
+    card_bg = _c(colors, "card_bg", "#f8fafc")
+    hint = _c(colors, "hint", "#9ca3af")
+
+    ctk.CTkLabel(
         target,
         text=ensure_text(_t(lang,
                             f"共 {len(rules)} 筆自訂規則",
                             f"{len(rules)} custom rule(s)")),
         anchor="w",
         font=font_normal,
-        fg="#475569",
-    )
-    summary.pack(fill=tk.X, pady=(0, 6))
+        text_color=text_secondary,
+    ).pack(fill="x", pady=(0, 6))
 
-    canvas = tk.Canvas(target, borderwidth=0, highlightthickness=0)
-    scrollbar = ttk.Scrollbar(target, orient="vertical", command=canvas.yview)
-    canvas.configure(yscrollcommand=scrollbar.set)
-    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-    canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-    inner = ttk.Frame(canvas)
-    win_id = canvas.create_window((0, 0), window=inner, anchor="nw")
-
-    def _on_frame_configure(event: Any) -> None:
-        canvas.configure(scrollregion=canvas.bbox("all"))
-
-    def _on_canvas_configure(event: Any) -> None:
-        canvas.itemconfig(win_id, width=event.width)
-
-    inner.bind("<Configure>", _on_frame_configure)
-    canvas.bind("<Configure>", _on_canvas_configure)
+    scroll_frame = ctk.CTkScrollableFrame(target, fg_color="transparent")
+    scroll_frame.pack(fill="both", expand=True)
 
     def _refresh() -> None:
         render_rules_panel(
@@ -377,36 +502,41 @@ def render_rules_panel(
             font_normal=font_normal,
             ensure_text=ensure_text,
             lang=lang,
+            colors=colors,
         )
 
     if not rules:
-        tk.Label(
-            inner,
+        ctk.CTkLabel(
+            scroll_frame,
             text=_t(lang, "(目前沒有自訂規則)", "(No custom rules)"),
-            anchor="w", font=font_normal, fg="#9ca3af",
-        ).pack(fill=tk.X, padx=8, pady=4)
+            anchor="w",
+            font=font_normal,
+            text_color=hint,
+        ).pack(fill="x", padx=8, pady=4)
     else:
         for idx, rule in enumerate(rules):
             trigger = ensure_text(rule.get("trigger", "")).strip()
             meaning = ensure_text(rule.get("meaning", "")).strip()
-            row = ttk.Frame(inner)
-            row.pack(fill=tk.X, pady=2, padx=4)
 
-            tk.Label(row, text=f"{idx + 1:02d}.", font=font_normal,
-                     fg="#94a3b8", width=3, anchor="e").pack(side=tk.LEFT)
+            row = ctk.CTkFrame(scroll_frame, fg_color=card_bg, corner_radius=6)
+            row.pack(fill="x", pady=2, padx=4)
 
-            tk.Label(
+            ctk.CTkLabel(
+                row,
+                text=f"{idx + 1:02d}.",
+                font=font_normal,
+                text_color=_c(colors, "hint", "#94a3b8"),
+                width=32,
+                anchor="e",
+            ).pack(side="left", padx=(6, 0), pady=6)
+
+            ctk.CTkLabel(
                 row,
                 text=f"{trigger}  →  {meaning}",
                 anchor="w",
                 font=font_normal,
-                fg="#0f172a",
-                bg="#f8fafc",
-                relief=tk.SOLID,
-                bd=1,
-                padx=8,
-                pady=4,
-            ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 8))
+                text_color=text_primary,
+            ).pack(side="left", fill="x", expand=True, padx=(4, 4), pady=6)
 
             def _make_delete(t: str) -> Callable[[], None]:
                 def _delete() -> None:
@@ -417,132 +547,39 @@ def render_rules_panel(
                         _refresh()
                 return _delete
 
-            tk.Button(
+            ctk.CTkButton(
                 row,
                 text=_t(lang, "刪除", "Delete"),
                 command=_make_delete(trigger),
                 font=font_normal,
-                bg="#fee2e2",
-                fg="#991b1b",
-                activebackground="#fecaca",
-                activeforeground="#991b1b",
-                relief=tk.GROOVE,
-                bd=1,
-                padx=6,
-            ).pack(side=tk.RIGHT)
+                fg_color="#fee2e2",
+                text_color="#991b1b",
+                hover_color="#fecaca",
+                corner_radius=6,
+                height=28,
+                width=52,
+            ).pack(side="right", padx=(2, 6), pady=6)
 
-    add_frame = ttk.Frame(target)
-    add_frame.pack(fill=tk.X, pady=(8, 0))
+    add_bar = ctk.CTkFrame(target, fg_color="transparent")
+    add_bar.pack(fill="x", pady=(8, 0))
 
     def _add_rule() -> None:
-        prompt1 = _t(lang, "觸發詞（你會說的話）：", "Trigger phrase (what you say):")
-        trigger = simpledialog.askstring(_t(lang, "新增規則", "Add Rule"), prompt1, parent=parent)
-        if not trigger or not trigger.strip():
+        pair = _ctk_ask_rule(parent, lang, font=font_normal, colors=colors)
+        if pair is None:
             return
-        prompt2 = _t(lang,
-                     f"「{trigger.strip()}」代表什麼動作或語意：",
-                     f"What does '{trigger.strip()}' mean:")
-        meaning = simpledialog.askstring(_t(lang, "新增規則", "Add Rule"), prompt2, parent=parent)
-        if not meaning or not meaning.strip():
-            return
-        memory.save_rule(trigger.strip(), meaning.strip())
+        trigger, meaning = pair
+        memory.save_rule(trigger, meaning)
         _refresh()
 
-    tk.Button(
-        add_frame,
+    ctk.CTkButton(
+        add_bar,
         text=_t(lang, "新增規則", "Add Rule"),
         command=_add_rule,
         font=font_normal,
-        bg="#e8f7ee",
-        fg="#065f46",
-        activebackground="#d1fae5",
-        activeforeground="#065f46",
-        relief=tk.GROOVE,
-        bd=1,
-        padx=8,
-    ).pack(side=tk.LEFT)
-
-
-def open_rules_manager_popup(
-    parent: tk.Misc,
-    memory: Any,
-    *,
-    safe_title: str,
-    font_title: tkfont.Font,
-    font_normal: tkfont.Font,
-    ensure_text: Callable[[Any], str],
-    lang: str = "zh",
-) -> None:
-    heading = _t(lang, "自訂規則管理", "Custom Rule Manager")
-    win, outer = create_popup_shell(
-        parent,
-        safe_title=safe_title,
-        heading_text=ensure_text(heading),
-        heading_font=font_title,
-        geometry="560x400",
-        padding=14,
-        resizable=(True, True),
-    )
-
-    content_frame = ttk.Frame(outer)
-    content_frame.pack(fill=tk.BOTH, expand=True)
-    render_rules_panel(
-        content_frame,
-        memory=memory,
-        parent=win,
-        font_normal=font_normal,
-        ensure_text=ensure_text,
-        lang=lang,
-    )
-
-    tk.Button(
-        outer,
-        text=ensure_text(_t(lang, "重新整理", "Refresh")),
-        font=font_normal,
-        command=lambda: render_rules_panel(
-            content_frame,
-            memory=memory,
-            parent=win,
-            font_normal=font_normal,
-            ensure_text=ensure_text,
-            lang=lang,
-        ),
-    ).pack(pady=(8, 0))
-
-
-def open_schedule_manager_popup(
-    parent: tk.Tk,
-    scheduler: Any,
-    *,
-    safe_title: str,
-    tr: Callable[[str], str],
-    ensure_text: Callable[[Any], str],
-    font_title: tkfont.Font,
-    font_normal: tkfont.Font,
-    font_mono: tkfont.Font,
-    lang: str = "zh",
-) -> None:
-    def _render(target: ttk.Frame) -> None:
-        render_schedule_panel(
-            target,
-            scheduler=scheduler,
-            parent=parent,
-            font_mono=font_mono,
-            font_normal=font_normal,
-            tr=tr,
-            ensure_text=ensure_text,
-            lang=lang,
-        )
-
-    create_panel_popup(
-        parent,
-        safe_title=safe_title,
-        heading_text=ensure_text(tr("schedule_manager")),
-        heading_font=font_title,
-        button_font=font_normal,
-        geometry="620x420",
-        refresh_label=ensure_text(tr("refresh")),
-        on_refresh=_render,
-        padding=14,
-        resizable=(True, True),
-    )
+        fg_color=_c(colors, "success", "#2ECC71"),
+        text_color="#ffffff",
+        hover_color="#27AE60",
+        corner_radius=6,
+        height=30,
+        width=110,
+    ).pack(side="left")

@@ -6,17 +6,17 @@ import locale
 try:
     import audioop as _audioop
 except ModuleNotFoundError:
-    _audioop = None  # type: ignore[assignment]
+    _audioop = None
 import subprocess
 import time
 import threading
 import tkinter as tk
 from datetime import datetime
 from pathlib import Path
-from tkinter import scrolledtext
 from tkinter import font as tkfont
-from tkinter import ttk
 from typing import Any
+
+import customtkinter as ctk
 
 try:
     from src.utils.tts import speak as _tts_speak
@@ -31,7 +31,6 @@ def _speak_async(
     on_start: callable | None = None,
     on_done: callable | None = None,
 ) -> None:
-    """在背景執行緒播放 TTS，不阻塞 GUI 主執行緒。"""
     def _runner() -> None:
         if callable(on_start):
             on_start()
@@ -40,16 +39,15 @@ def _speak_async(
         finally:
             if callable(on_done):
                 on_done()
-
     t = threading.Thread(target=_runner, daemon=True)
     t.start()
 
-from src.gui.popup_views import create_panel_popup, create_text_popup
-from src.gui.schedule_popup_helper import open_schedule_manager_popup, open_rules_manager_popup, render_schedule_panel, render_rules_panel
+
+from src.gui.schedule_popup_helper import render_schedule_panel, render_rules_panel
 from src.core.scheduler_runtime import SchedulerRuntime
 from src.runtime import build_runtime
 from src.services.gui_command_service import GuiCommandPresentation, execute_gui_text_command, format_reply_for_language
-from src.services.gui_state_service import display_location, display_state_value, format_device_state_content, format_queue_content
+from src.services.gui_state_service import display_location, display_state_value
 from src.utils.config import (
     DATA_DIR,
     RULES_FILE,
@@ -66,6 +64,53 @@ except Exception:
     SpeechProcessor = None  # type: ignore[assignment]
 
 
+# ─── Theme ────────────────────────────────────────────────────────────────────
+
+class ThemeManager:
+    DARK: dict[str, str] = {
+        "app_bg": "#121212",
+        "panel_bg": "#1E1E1E",
+        "card_bg": "#252525",
+        "card_border": "#333333",
+        "accent": "#3A86FF",
+        "success": "#2ECC71",
+        "text_primary": "#F0F0F0",
+        "text_secondary": "#A0A0A0",
+        "hint": "#707070",
+        "warning": "#FFB347",
+        "user": "#3A86FF",
+        "assistant": "#2ECC71",
+        "system": "#FFB347",
+        "btn_hover": "#2E2E2E",
+        "input_bg": "#2A2A2A",
+        "nav_hover": "#2E2E2E",
+    }
+    LIGHT: dict[str, str] = {
+        "app_bg": "#F5F7F8",
+        "panel_bg": "#FFFFFF",
+        "card_bg": "#FFFFFF",
+        "card_border": "#E0E0E0",
+        "accent": "#3A86FF",
+        "success": "#27AE60",
+        "text_primary": "#0F172A",
+        "text_secondary": "#475569",
+        "hint": "#64748B",
+        "warning": "#B45309",
+        "user": "#1D4ED8",
+        "assistant": "#047857",
+        "system": "#B45309",
+        "btn_hover": "#E8ECF0",
+        "input_bg": "#F8FAFC",
+        "nav_hover": "#E8ECF0",
+    }
+
+    @classmethod
+    def get(cls, mode: str) -> dict[str, str]:
+        return cls.DARK if mode == "dark" else cls.LIGHT
+
+
+# ─── I18N ─────────────────────────────────────────────────────────────────────
+
 I18N: dict[str, dict[str, str]] = {
     "zh": {
         "title": "智慧家庭控制台",
@@ -73,10 +118,12 @@ I18N: dict[str, dict[str, str]] = {
         "idle": "Idle",
         "processing": "Thinking...",
         "speaking": "Speaking...",
+        "waiting_wake_word": "Waiting for wake word...",
         "listening": "Listening...",
         "ready_detail": "Idle",
         "processing_detail": "Thinking...",
         "speaking_detail": "Speaking...",
+        "waiting_wake_word_detail": "Waiting for wake word...",
         "listening_detail": "Listening...",
         "status_prefix": "狀態",
         "voice_mode_title": "Voice Mode",
@@ -134,6 +181,9 @@ I18N: dict[str, dict[str, str]] = {
         "habits_rules": "已學習規則",
         "rules_manager": "規則管理",
         "chat_hint": "按 Enter 或點送出即可對話。",
+        "theme": "主題",
+        "theme_dark": "深色",
+        "theme_light": "淺色",
     },
     "en": {
         "title": "Smart Home Console",
@@ -204,39 +254,39 @@ I18N: dict[str, dict[str, str]] = {
         "habits_rules": "Learned Rules",
         "rules_manager": "Rules Manager",
         "chat_hint": "Press Enter or click Send to chat.",
+        "theme": "Theme",
+        "theme_dark": "Dark",
+        "theme_light": "Light",
     },
 }
-
 
 WINDOW_TITLE_ASCII = "Smart Home Console"
-WINDOW_TITLE_SUFFIXES = {
-    "zh": {
-        "家具狀態": "Device States",
-        "使用者習慣": "User Habits",
-        "排程 Queue": "Schedule Queue",
-    },
-    "en": {
-        "Device States": "Device States",
-        "User Habits": "User Habits",
-        "Schedule Queue": "Schedule Queue",
-    },
-}
 
 
 def _is_raspberry_pi() -> bool:
     try:
         model_path = Path("/proc/device-tree/model")
         if model_path.exists():
-            model_text = model_path.read_text(encoding="utf-8", errors="ignore")
-            return "raspberry pi" in model_text.lower()
+            return "raspberry pi" in model_path.read_text(encoding="utf-8", errors="ignore").lower()
     except Exception:
         pass
     return False
 
 
-class DashboardApp(tk.Tk):
+# ─── App ──────────────────────────────────────────────────────────────────────
+
+class DashboardApp(ctk.CTk):
     def __init__(self) -> None:
         super().__init__()
+
+        # Theme
+        self._theme_mode = "dark"
+        ctk.set_appearance_mode("dark")
+        ctk.set_default_color_theme("blue")
+        self.colors = ThemeManager.get(self._theme_mode)
+        self._clock_job: str | None = None
+
+        # State vars
         self.chat_limit = 20
         self.lang = tk.StringVar(value="zh")
         self.current_status = tk.StringVar(value="")
@@ -249,6 +299,7 @@ class DashboardApp(tk.Tk):
         self._page_history: list[str] = []
         self._page_future: list[str] = []
 
+        # Runtime
         env_gui_with_device = os.environ.get("GUI_WITH_DEVICE")
         if env_gui_with_device is None:
             gui_with_device = _is_raspberry_pi()
@@ -261,7 +312,7 @@ class DashboardApp(tk.Tk):
             with_device=gui_with_device,
             setup_device=gui_with_device,
         )
-        self.state = self.runtime.state
+        self.app_state = self.runtime.state
         self.memory = self.runtime.memory
         self.agent = self.runtime.agent
         self.schedule_path = Path(DATA_DIR) / "memory" / "schedules.json"
@@ -282,49 +333,29 @@ class DashboardApp(tk.Tk):
             except Exception:
                 self._speech = None
                 self.speech_enabled = False
-        self.ui_font_size = 11
-        self.colors = {
-            "app_bg": "#eef2f7",
-            "panel_bg": "#f8fafc",
-            "card_bg": "#ffffff",
-            "card_border": "#dbe4ee",
-            "text_primary": "#0f172a",
-            "text_secondary": "#475569",
-            "hint": "#64748b",
-            "warning": "#b45309",
-            "user": "#1d4ed8",
-            "assistant": "#047857",
-            "system": "#b45309",
-        }
+
+        # Fonts
+        self.ui_font_size = 14
         self.zh_font_family, self.en_font_family = self._resolve_font_families()
-        self.has_cjk_font = self.zh_font_family not in {"DejaVu Sans", "Noto Sans", "Liberation Sans", "Arial", "Helvetica", "Ubuntu"}
         self._active_font_family = self.zh_font_family if self.lang.get() == "zh" else self.en_font_family
         self._build_fonts()
 
-        self._set_window_title()
+        # Window
+        self.title(WINDOW_TITLE_ASCII)
         self.geometry("1100x700+100+100")
         self.minsize(900, 540)
-        self.configure(bg=self.colors["app_bg"])
-        self.deiconify()
-        self.lift()
-        self.focus_force()
-        self.update_idletasks()  # force window manager to process show event
-        print("[GUI] window visible")
 
+        # Build
         self._build_layout()
         self._set_boot_status()
         self._tick_clock()
-        self.after(50, self._focus_input)
-        self.after(300, lambda: _speak_async(I18N["zh"]["system_ready"]) if self.lang.get() == "zh" else None)
 
-        SchedulerRuntime.start(
-            self,
-            self.agent,
-            lambda: self.lang.get(),
-            self._on_schedule_executed
-        )
+        # Services
+        SchedulerRuntime.start(self, self.agent, lambda: self.lang.get(), self._on_schedule_executed)
         self._start_voice_loop()
         self.protocol("WM_DELETE_WINDOW", self._on_closing)
+
+    # ─── Lifecycle ────────────────────────────────────────────────────────────
 
     def _on_schedule_executed(self, command_text: str, reply: str) -> None:
         self._append_chat_message("system", f"[Scheduler] {command_text}\n{reply}")
@@ -338,6 +369,9 @@ class DashboardApp(tk.Tk):
             except Exception:
                 pass
         self.destroy()
+
+    # ─── Helpers ──────────────────────────────────────────────────────────────
+
     def tr(self, key: str) -> str:
         return I18N[self.lang.get()].get(key, key)
 
@@ -347,40 +381,16 @@ class DashboardApp(tk.Tk):
         if isinstance(value, bytes):
             encodings = ["utf-8", locale.getpreferredencoding(False), "cp950", "big5"]
             tried: set[str] = set()
-            for encoding in encodings:
-                if not encoding or encoding in tried:
+            for enc in encodings:
+                if not enc or enc in tried:
                     continue
-                tried.add(encoding)
+                tried.add(enc)
                 try:
-                    return value.decode(encoding)
+                    return value.decode(enc)
                 except UnicodeDecodeError:
                     continue
             return value.decode("utf-8", errors="replace")
         return str(value)
-
-    def _safe_title_text(self) -> str:
-        raw_title = self._ensure_text(I18N[self.lang.get()]["title"])
-        try:
-            raw_title.encode("ascii")
-            return raw_title
-        except UnicodeEncodeError:
-            return WINDOW_TITLE_ASCII
-
-    def _safe_child_title_text(self, raw_title: str) -> str:
-        clean_title = self._ensure_text(raw_title)
-        mapped = WINDOW_TITLE_SUFFIXES.get(self.lang.get(), {}).get(clean_title)
-        if mapped:
-            return f"{WINDOW_TITLE_ASCII} - {mapped}"
-        try:
-            clean_title.encode("ascii")
-            return f"{WINDOW_TITLE_ASCII} - {clean_title}"
-        except UnicodeEncodeError:
-            return WINDOW_TITLE_ASCII
-
-    def _set_window_title(self) -> None:
-        safe_title = self._safe_title_text()
-        self.title(safe_title)
-        self.wm_title(safe_title)
 
     def _pick_first_available_font(self, candidates: list[str]) -> str | None:
         available = {name.lower(): name for name in tkfont.families(self)}
@@ -392,82 +402,317 @@ class DashboardApp(tk.Tk):
 
     def _resolve_font_families(self) -> tuple[str, str]:
         zh_candidates = [
-            "Noto Sans CJK TC",
-            "Noto Sans CJK SC",
-            "Noto Sans CJK JP",
-            "Source Han Sans TC",
-            "WenQuanYi Zen Hei",
-            "PingFang TC",
-            "Microsoft JhengHei",
-            "AR PL UMing TW",
-            "AR PL UKai TW",
+            "Microsoft JhengHei UI", "Microsoft JhengHei",
+            "PingFang TC", "Noto Sans CJK TC", "Noto Sans CJK SC",
+            "Source Han Sans TC", "WenQuanYi Zen Hei", "AR PL UMing TW",
         ]
         en_candidates = [
-            "DejaVu Sans",
-            "Noto Sans",
-            "Liberation Sans",
-            "Ubuntu",
-            "Arial",
-            "Helvetica",
+            "Segoe UI", "Calibri", "Inter", "Noto Sans",
+            "DejaVu Sans", "Liberation Sans", "Ubuntu", "Arial",
         ]
-
         zh_font = self._pick_first_available_font(zh_candidates)
         en_font = self._pick_first_available_font(en_candidates)
-
-        safe_fallback = "DejaVu Sans"
+        safe_fallback = "Segoe UI"
         return zh_font or safe_fallback, en_font or zh_font or safe_fallback
 
     def _current_font_family(self) -> str:
         return self.zh_font_family if self.lang.get() == "zh" else self.en_font_family
 
     def _build_fonts(self) -> None:
-        self._active_font_family = self._current_font_family()
-        self.font_normal = tkfont.Font(self, family=self._active_font_family, size=self.ui_font_size)
-        self.font_title = tkfont.Font(self, family=self._active_font_family, size=self.ui_font_size + 3, weight="bold")
-        self.font_status = tkfont.Font(self, family=self._active_font_family, size=self.ui_font_size + 1)
-        self.font_mono = tkfont.Font(self, family=self._active_font_family, size=self.ui_font_size)
-        self.font_chat_speaker = tkfont.Font(self, family=self._active_font_family, size=self.ui_font_size, weight="bold")
+        fam = self._current_font_family()
+        self._active_font_family = fam
+        self.font_normal = ctk.CTkFont(family=fam, size=self.ui_font_size)
+        self.font_title = ctk.CTkFont(family=fam, size=self.ui_font_size + 4, weight="bold")
+        self.font_status = ctk.CTkFont(family=fam, size=self.ui_font_size + 1)
+        self.font_mono = ctk.CTkFont(family="Consolas", size=self.ui_font_size - 1)
+        self._tk_font_normal = tkfont.Font(family=fam, size=self.ui_font_size)
+        self._tk_font_bold = tkfont.Font(family=fam, size=self.ui_font_size, weight="bold")
 
-    def _apply_widget_fonts(self) -> None:
-        always_present = [
-            getattr(self, "system_title", None),
-            getattr(self, "lang_label", None),
-            getattr(self, "status_label", None),
-            getattr(self, "voice_mode_title_label", None),
-            getattr(self, "voice_mode_value_label", None),
-            getattr(self, "debug_mode_title_label", None),
-            getattr(self, "debug_mode_value_label", None),
-            getattr(self, "debug_toggle_btn", None),
-            getattr(self, "entry_input", None),
-            getattr(self, "send_btn", None),
-            getattr(self, "chat_box", None),
-            getattr(self, "clock_label", None),
-            getattr(self, "sync_label", None),
-            getattr(self, "nav_back_btn", None),
-            getattr(self, "nav_fwd_btn", None),
-            getattr(self, "nav_page_label", None),
-            getattr(self, "font_notice_label", None),
-        ]
-        for widget in always_present:
-            if widget is None:
-                continue
-            if widget is getattr(self, "system_title", None):
-                widget.configure(font=self.font_title)
-            elif widget is getattr(self, "status_label", None):
-                widget.configure(font=self.font_status)
-            elif widget is getattr(self, "chat_box", None):
-                widget.configure(font=self.font_normal)
+    # ─── Theme ────────────────────────────────────────────────────────────────
+
+    def _toggle_theme(self) -> None:
+        self._theme_mode = "light" if self._theme_mode == "dark" else "dark"
+        ctk.set_appearance_mode(self._theme_mode)
+        self.colors = ThemeManager.get(self._theme_mode)
+        self._rebuild_ui()
+
+    def _rebuild_ui(self) -> None:
+        if self._clock_job:
+            self.after_cancel(self._clock_job)
+            self._clock_job = None
+        for child in self.winfo_children():
+            child.destroy()
+        self._build_fonts()
+        self._build_layout()
+        self._set_boot_status()
+        self._tick_clock()
+        self._load_chat_history()
+        if not self.chat_history:
+            self.chat_history.append((self.tr("system"), self._ensure_text(self.tr("system_ready"))))
+        self._render_chat_history()
+
+    # ─── Layout ───────────────────────────────────────────────────────────────
+
+    def _set_initial_sash(self) -> None:
+        try:
+            total = self._paned.winfo_width()
+            if total > 10:
+                self._paned.sash_place(0, int(total * 0.40), 0)
+        except Exception:
+            pass
+
+    def _build_layout(self) -> None:
+        root_frame = ctk.CTkFrame(self, fg_color=self.colors["app_bg"], corner_radius=0)
+        root_frame.pack(fill="both", expand=True, padx=12, pady=12)
+
+        # Top bar
+        top_bar = ctk.CTkFrame(root_frame, fg_color="transparent", height=40)
+        top_bar.pack(fill="x", pady=(0, 8))
+        top_bar.pack_propagate(False)
+
+        nav_frame = ctk.CTkFrame(top_bar, fg_color="transparent")
+        nav_frame.pack(side="left", padx=(0, 4))
+
+        self.nav_back_btn = ctk.CTkButton(
+            nav_frame, text="←", width=32, height=32, corner_radius=16,
+            fg_color="transparent", hover_color=self.colors["nav_hover"],
+            text_color=self.colors["text_primary"], font=self.font_normal,
+            state="disabled", command=self._nav_back,
+        )
+        self.nav_back_btn.pack(side="left")
+
+        self.nav_fwd_btn = ctk.CTkButton(
+            nav_frame, text="→", width=32, height=32, corner_radius=16,
+            fg_color="transparent", hover_color=self.colors["nav_hover"],
+            text_color=self.colors["text_primary"], font=self.font_normal,
+            state="disabled", command=self._nav_fwd,
+        )
+        self.nav_fwd_btn.pack(side="left", padx=(4, 0))
+
+        self.nav_page_label = ctk.CTkLabel(
+            top_bar, text="", font=self.font_normal,
+            text_color=self.colors["text_secondary"],
+        )
+        self.nav_page_label.pack(side="left", padx=8)
+
+        self.clock_label = ctk.CTkLabel(
+            top_bar, text="", font=self.font_normal,
+            text_color=self.colors["text_secondary"],
+        )
+        self.clock_label.pack(side="left", expand=True)
+
+        right_controls = ctk.CTkFrame(top_bar, fg_color="transparent")
+        right_controls.pack(side="right")
+
+        self.theme_switch = ctk.CTkSwitch(
+            right_controls,
+            text=self.tr("theme_dark" if self._theme_mode == "dark" else "theme_light"),
+            font=self.font_normal,
+            command=self._toggle_theme,
+        )
+        self.theme_switch.pack(side="left", padx=(0, 12))
+        if self._theme_mode == "dark":
+            self.theme_switch.select()
+        else:
+            self.theme_switch.deselect()
+
+        self.lang_picker = ctk.CTkOptionMenu(
+            right_controls,
+            values=["zh", "en"],
+            variable=self.lang,
+            font=self.font_normal,
+            width=80,
+            command=self._on_language_change,
+        )
+        self.lang_picker.pack(side="left")
+
+        # Body — draggable split
+        self._paned = tk.PanedWindow(
+            root_frame,
+            orient="horizontal",
+            sashwidth=8,
+            sashpad=2,
+            sashrelief="flat",
+            bg=self.colors["app_bg"],
+            bd=0,
+            relief="flat",
+            opaqueresize=False,
+        )
+        self._paned.pack(fill="both", expand=True)
+
+        left = ctk.CTkFrame(self._paned, fg_color=self.colors["panel_bg"], corner_radius=15)
+        self._paned.add(left, minsize=260, stretch="always")
+        self._build_left_panel(left)
+
+        right = ctk.CTkFrame(self._paned, fg_color=self.colors["panel_bg"], corner_radius=15)
+        self._paned.add(right, minsize=200, stretch="always")
+        self._page_container = right
+        self._show_page(self._current_page)
+
+        # Set initial 40/60 split after window has rendered
+        self._paned.after(50, self._set_initial_sash)
+
+    def _build_left_panel(self, parent: ctk.CTkFrame) -> None:
+        # Status card
+        status_card = ctk.CTkFrame(parent, fg_color=self.colors["card_bg"], corner_radius=10)
+        status_card.pack(fill="x", padx=12, pady=(12, 6))
+
+        status_row = ctk.CTkFrame(status_card, fg_color="transparent")
+        status_row.pack(fill="x", padx=10, pady=(8, 4))
+
+        self.status_dot = ctk.CTkLabel(
+            status_row, text="●", font=self.font_status,
+            text_color=self.colors["success"],
+        )
+        self.status_dot.pack(side="left", padx=(0, 6))
+
+        self.status_label = ctk.CTkLabel(
+            status_row, textvariable=self.current_status,
+            font=self.font_status, text_color=self.colors["text_primary"], anchor="w",
+        )
+        self.status_label.pack(side="left", fill="x", expand=True)
+
+        self.status_detail_label = ctk.CTkLabel(
+            status_card, text="", font=self.font_normal,
+            text_color=self.colors["text_secondary"], anchor="w",
+        )
+        self.status_detail_label.pack(fill="x", padx=10, pady=(0, 8))
+
+        # Font notice
+        self.font_notice_label = ctk.CTkLabel(
+            parent, text="", font=self.font_normal,
+            text_color=self.colors["warning"], anchor="w", wraplength=280,
+        )
+        self.font_notice_label.pack(fill="x", padx=12, pady=(0, 2))
+
+        # Voice mode
+        vm_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        vm_frame.pack(fill="x", padx=12, pady=(4, 2))
+        ctk.CTkLabel(
+            vm_frame, text=self.tr("voice_mode_title"),
+            font=self.font_normal, text_color=self.colors["text_secondary"], anchor="w",
+        ).pack(anchor="w")
+        self.voice_mode_value_label = ctk.CTkLabel(
+            vm_frame, textvariable=self.voice_mode_text,
+            font=self.font_normal, text_color=self.colors["text_primary"], anchor="w",
+        )
+        self.voice_mode_value_label.pack(anchor="w")
+
+        # Debug toggle
+        self.debug_toggle_btn = ctk.CTkButton(
+            parent, text=self.tr("debug_input_toggle"),
+            font=self.font_normal, height=28, corner_radius=8,
+            fg_color=self.colors["card_bg"], hover_color=self.colors["btn_hover"],
+            text_color=self.colors["text_primary"],
+            command=self._toggle_debug_input,
+        )
+        self.debug_toggle_btn.pack(anchor="w", padx=12, pady=(4, 4))
+
+        # Command input
+        self.cmd_frame = ctk.CTkFrame(parent, fg_color=self.colors["card_bg"], corner_radius=10)
+        if self._text_input_visible:
+            self.cmd_frame.pack(fill="x", padx=12, pady=(0, 6))
+
+        ctk.CTkLabel(
+            self.cmd_frame, text=self.tr("input_label"),
+            font=self.font_normal, text_color=self.colors["text_secondary"], anchor="w",
+        ).pack(fill="x", padx=10, pady=(8, 2))
+
+        input_row = ctk.CTkFrame(self.cmd_frame, fg_color="transparent")
+        input_row.pack(fill="x", padx=10, pady=(0, 8))
+
+        self.entry_input = ctk.CTkEntry(
+            input_row, textvariable=self.command_text,
+            font=self.font_normal,
+            fg_color=self.colors["input_bg"],
+            border_color=self.colors["card_border"],
+            text_color=self.colors["text_primary"],
+            corner_radius=8,
+        )
+        self.entry_input.pack(side="left", fill="x", expand=True)
+        self.entry_input.bind("<Return>", self._on_send)
+
+        self.send_btn = ctk.CTkButton(
+            input_row, text=self.tr("send"),
+            font=self.font_normal, width=64, height=32, corner_radius=8,
+            fg_color=self.colors["accent"], hover_color="#2563EB",
+            text_color="#FFFFFF", command=self._on_send,
+        )
+        self.send_btn.pack(side="left", padx=(8, 0))
+
+        # Chat hint
+        self.chat_hint_label = ctk.CTkLabel(
+            parent, text=self.tr("chat_hint"),
+            font=self.font_normal, text_color=self.colors["hint"],
+            anchor="w", wraplength=280,
+        )
+        self.chat_hint_label.pack(fill="x", padx=12, pady=(0, 4))
+
+        # Conversation label
+        self.conv_label = ctk.CTkLabel(
+            parent, text=self.tr("conversation"),
+            font=self.font_title, text_color=self.colors["text_primary"], anchor="w",
+        )
+        self.conv_label.pack(fill="x", padx=12, pady=(4, 4))
+
+        # Chat box
+        self.chat_box = ctk.CTkTextbox(
+            parent,
+            font=self.font_normal,
+            state="disabled",
+            wrap="word",
+            fg_color=self.colors["card_bg"],
+            text_color=self.colors["text_primary"],
+            corner_radius=10,
+            border_width=0,
+        )
+        self.chat_box.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        self._configure_chat_tags()
+
+    # ─── Chat ─────────────────────────────────────────────────────────────────
+
+    def _configure_chat_tags(self) -> None:
+        tb = self.chat_box._textbox
+        tb.tag_configure("speaker_user", foreground=self.colors["user"], font=self._tk_font_bold, spacing1=8)
+        tb.tag_configure("body_user", foreground=self.colors["text_primary"], lmargin1=16, lmargin2=16, rmargin=14, spacing3=8)
+        tb.tag_configure("speaker_assistant", foreground=self.colors["assistant"], font=self._tk_font_bold, spacing1=8)
+        tb.tag_configure("body_assistant", foreground=self.colors["text_primary"], lmargin1=16, lmargin2=16, rmargin=14, spacing3=8)
+        tb.tag_configure("speaker_system", foreground=self.colors["system"], font=self._tk_font_bold, spacing1=8)
+        tb.tag_configure("body_system", foreground=self.colors["text_secondary"], lmargin1=16, lmargin2=16, rmargin=14, spacing3=8)
+
+    def _render_chat_history(self) -> None:
+        if not hasattr(self, "chat_box"):
+            return
+        tb = self.chat_box._textbox
+        self.chat_box.configure(state="normal")
+        tb.delete("1.0", "end")
+        for speaker, message in self.chat_history:
+            if speaker == self.tr("you"):
+                stag, btag = "speaker_user", "body_user"
+            elif speaker == self.tr("assistant"):
+                stag, btag = "speaker_assistant", "body_assistant"
             else:
-                widget.configure(font=self.font_normal)
+                stag, btag = "speaker_system", "body_system"
+            tb.insert("end", f"{speaker}\n", stag)
+            tb.insert("end", f"{message}\n\n", btag)
+        self.chat_box.configure(state="disabled")
+        tb.see("end")
+
+    def _append_chat_message(self, speaker: str, message: str) -> None:
+        text = self._ensure_text(message).strip()
+        if not text:
+            return
+        self.chat_history.append((speaker, text))
+        self.chat_history = self.chat_history[-self.chat_limit:]
+        self._render_chat_history()
 
     def _load_chat_history(self) -> None:
         try:
             rows = self.memory._read_short().get("interactions", [])
         except Exception:
             rows = []
-
         self.chat_history = []
-        for row in rows[-self.chat_limit :]:
+        for row in rows[-self.chat_limit:]:
             user_text = self._ensure_text(row.get("user", "")).strip()
             assistant_text = self._ensure_text(row.get("assistant", "")).strip()
             if user_text:
@@ -475,75 +720,97 @@ class DashboardApp(tk.Tk):
             if assistant_text:
                 self.chat_history.append((self.tr("assistant"), format_reply_for_language(assistant_text, self.lang.get())))
 
-    def _append_chat_message(self, speaker: str, message: str) -> None:
-        text = self._ensure_text(message).strip()
-        if not text:
-            return
+    # ─── Status ───────────────────────────────────────────────────────────────
 
-        self.chat_history.append((speaker, text))
-        self.chat_history = self.chat_history[-self.chat_limit :]
-        self._render_chat_history()
+    def _set_status(self, state_text: str, detail_text: str) -> None:
+        full_status = f"{self.tr('status_prefix')}: {state_text}"
+        self.current_status.set(full_status)
+        dot_colors = {
+            self.tr("idle"): self.colors["success"],
+            self.tr("processing"): self.colors["accent"],
+            self.tr("speaking"): self.colors["warning"],
+            self.tr("waiting_wake_word"): "#A855F7",
+            self.tr("listening"): self.colors["success"],
+        }
+        dot_color = dot_colors.get(state_text, self.colors["text_secondary"])
+        if hasattr(self, "status_dot"):
+            self.status_dot.configure(text_color=dot_color)
+        if hasattr(self, "status_detail_label"):
+            self.status_detail_label.configure(text=self._ensure_text(detail_text))
+        self._update_voice_mode_indicator(state_text)
 
-    def _focus_input(self) -> None:
-        if self._text_input_visible and hasattr(self, "entry_input"):
-            self.entry_input.focus_set()
+    def _set_status_async(self, state_text: str, detail_text: str) -> None:
+        self.after(0, lambda: self._set_status(state_text, detail_text))
+
+    def _set_boot_status(self) -> None:
+        if self.voice_only_mode and self.speech_enabled:
+            self._set_status(self.tr("waiting_wake_word"), self.tr("waiting_wake_word_detail"))
+        else:
+            self._set_status(self.tr("idle"), self.tr("ready_detail"))
+        self._update_debug_mode_indicator()
+        has_cjk = self.zh_font_family not in {
+            "DejaVu Sans", "Noto Sans", "Liberation Sans", "Arial", "Helvetica", "Ubuntu"
+        }
+        if self.lang.get() == "zh" and not has_cjk and hasattr(self, "font_notice_label"):
+            self.font_notice_label.configure(text="警告: 系統未偵測到中文字型，請安裝 fonts-noto-cjk 或 fonts-wqy-zenhei。")
+        elif hasattr(self, "font_notice_label"):
+            self.font_notice_label.configure(text="")
 
     def _update_voice_mode_indicator(self, state_text: str | None = None) -> None:
         prefix = self._ensure_text(self.tr("mic_prefix"))
         if not self.speech_enabled:
             self.voice_mode_text.set(f"{prefix} {self._ensure_text(self.tr('mic_disabled'))}")
             return
-
-        target_state = state_text or ""
-        if target_state == self.tr("idle"):
-            target_state = self._ensure_text(self.tr("mic_ready"))
-        elif not target_state:
-            target_state = self._ensure_text(self.tr("mic_ready"))
-
-        self.voice_mode_text.set(f"{prefix} {self._ensure_text(target_state)}")
+        target = state_text or ""
+        if target == self.tr("idle") or not target:
+            target = self._ensure_text(self.tr("mic_ready"))
+        self.voice_mode_text.set(f"{prefix} {self._ensure_text(target)}")
 
     def _update_debug_mode_indicator(self) -> None:
         prefix = self._ensure_text(self.tr("debug_input_prefix"))
         value = self.tr("debug_input_enabled") if self._text_input_visible else self.tr("debug_input_hidden")
         self.debug_mode_text.set(f"{self._ensure_text(prefix)} {self._ensure_text(value)}")
 
+    # ─── Input ────────────────────────────────────────────────────────────────
+
+    def _focus_input(self) -> None:
+        if self._text_input_visible and hasattr(self, "entry_input"):
+            self.entry_input.focus_set()
+
     def _set_text_input_visibility(self, visible: bool) -> None:
         self._text_input_visible = bool(visible)
+        if not hasattr(self, "cmd_frame"):
+            return
         if self._text_input_visible:
-            if self.cmd_frame.winfo_manager() == "":
-                self.cmd_frame.pack(fill=tk.X, before=self.conversation_frame)
-            self.send_btn.configure(state=tk.NORMAL)
-            self.entry_input.configure(state=tk.NORMAL)
+            if not self.cmd_frame.winfo_ismapped():
+                self.cmd_frame.pack(fill="x", padx=12, pady=(0, 6), before=self.chat_hint_label)
+            self.send_btn.configure(state="normal")
+            self.entry_input.configure(state="normal")
             self._focus_input()
         else:
-            if self.cmd_frame.winfo_manager() != "":
-                self.cmd_frame.pack_forget()
+            self.cmd_frame.pack_forget()
         self._update_debug_mode_indicator()
 
     def _toggle_debug_input(self) -> None:
         self._set_text_input_visibility(not self._text_input_visible)
 
-    def _set_status(self, state_text: str, detail_text: str) -> None:
-        full_status = f"{self.tr('status_prefix')}: {state_text}"
-        self.current_status.set(full_status)
-        status_palette = {
-            self.tr("idle"): ("#0f766e", "#ccfbf1"),
-            self.tr("processing"): ("#1d4ed8", "#dbeafe"),
-            self.tr("speaking"): ("#b45309", "#ffedd5"),
-            self.tr("waiting_wake_word"): ("#7c3aed", "#ede9fe"),
-            self.tr("listening"): ("#047857", "#d1fae5"),
-        }
-        fg, bg = status_palette.get(state_text, (self.colors["text_primary"], "#e2e8f0"))
-        self.status_label.configure(text=full_status, fg=fg, bg=bg, padx=10, pady=4)
-        self.status_detail_label.configure(text=self._ensure_text(detail_text), fg=self.colors["text_secondary"], bg=self.colors["panel_bg"])
-        self._update_voice_mode_indicator(state_text)
-
     def _set_input_enabled(self, enabled: bool) -> None:
         if not self._text_input_visible:
             return
-        state = tk.NORMAL if enabled else tk.DISABLED
+        state = "normal" if enabled else "disabled"
         self.send_btn.configure(state=state)
         self.entry_input.configure(state=state)
+
+    # ─── Clock ────────────────────────────────────────────────────────────────
+
+    def _tick_clock(self) -> None:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.time_text.set(now)
+        if hasattr(self, "clock_label"):
+            self.clock_label.configure(text=now)
+        self._clock_job = self.after(1000, self._tick_clock)
+
+    # ─── Command flow ─────────────────────────────────────────────────────────
 
     def _begin_command_flow(self, raw: str) -> None:
         self._set_input_enabled(False)
@@ -567,256 +834,6 @@ class DashboardApp(tk.Tk):
                 on_done=lambda: self.after(0, lambda: self._set_status(self.tr("idle"), self.tr("ready_detail"))),
             )
 
-    def _render_chat_history(self) -> None:
-        if not hasattr(self, "chat_box"):
-            return
-
-        self.chat_box.configure(state=tk.NORMAL)
-        self.chat_box.delete("1.0", tk.END)
-        for speaker, message in self.chat_history:
-            if speaker == self.tr("you"):
-                speaker_tag = "speaker_user"
-                body_tag = "body_user"
-            elif speaker == self.tr("assistant"):
-                speaker_tag = "speaker_assistant"
-                body_tag = "body_assistant"
-            else:
-                speaker_tag = "speaker_system"
-                body_tag = "body_system"
-
-            self.chat_box.insert(tk.END, f"{speaker}\n", speaker_tag)
-            self.chat_box.insert(tk.END, f"{message}\n\n", body_tag)
-        self.chat_box.configure(state=tk.DISABLED)
-        self.chat_box.see(tk.END)
-
-    def _configure_chat_tags(self) -> None:
-        self.chat_box.tag_configure("speaker_user", foreground=self.colors["user"], font=self.font_chat_speaker, spacing1=8)
-        self.chat_box.tag_configure("body_user", foreground=self.colors["text_primary"], background="#eff6ff", lmargin1=16, lmargin2=16, rmargin=14, spacing3=10)
-        self.chat_box.tag_configure("speaker_assistant", foreground=self.colors["assistant"], font=self.font_chat_speaker, spacing1=8)
-        self.chat_box.tag_configure("body_assistant", foreground=self.colors["text_primary"], background="#ecfdf5", lmargin1=16, lmargin2=16, rmargin=14, spacing3=10)
-        self.chat_box.tag_configure("speaker_system", foreground=self.colors["system"], font=self.font_chat_speaker, spacing1=8)
-        self.chat_box.tag_configure("body_system", foreground="#78350f", background="#fffbeb", lmargin1=16, lmargin2=16, rmargin=14, spacing3=10)
-
-    def _format_device_state_content(self) -> str:
-        return format_device_state_content(self.state.get_state(), self.tr, self._ensure_text)
-
-    def _format_queue_content(self) -> str:
-        return format_queue_content(self._read_schedule_queue(), self.tr, self._ensure_text)
-
-    def _build_layout(self) -> None:
-        wrapper = tk.Frame(self, bg=self.colors["app_bg"], padx=12, pady=12)
-        wrapper.pack(fill=tk.BOTH, expand=True)
-
-        top_bar = tk.Frame(wrapper, bg=self.colors["app_bg"])
-        top_bar.pack(fill=tk.X)
-
-        self.system_title = tk.Label(
-            top_bar,
-            text=self._ensure_text(self.tr("system_ready")),
-            anchor="w",
-            font=self.font_title,
-            bg=self.colors["app_bg"],
-            fg=self.colors["text_primary"],
-        )
-        self.system_title.pack(side=tk.LEFT)
-
-        lang_group = tk.Frame(top_bar, bg=self.colors["app_bg"])
-        lang_group.pack(side=tk.RIGHT)
-        self.lang_label = tk.Label(lang_group, text=f"{self._ensure_text(self.tr('lang'))}: ", font=self.font_normal, bg=self.colors["app_bg"], fg=self.colors["text_secondary"])
-        self.lang_label.pack(side=tk.LEFT)
-        lang_picker = ttk.Combobox(lang_group, textvariable=self.lang, values=["zh", "en"], width=6, state="readonly")
-        lang_picker.pack(side=tk.LEFT)
-        lang_picker.bind("<<ComboboxSelected>>", self._on_language_change)
-
-        body = tk.Frame(wrapper, bg=self.colors["app_bg"])
-        body.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
-        body.columnconfigure(0, weight=3)
-        body.columnconfigure(1, weight=2)
-        body.rowconfigure(0, weight=1)
-
-        left = tk.Frame(body, bg=self.colors["panel_bg"], highlightbackground=self.colors["card_border"], highlightthickness=1, padx=12, pady=12)
-        left.grid(row=0, column=0, sticky="nsew")
-
-        self.status_label = tk.Label(left, text="", anchor="w", font=self.font_status, bg="#e2e8f0", fg=self.colors["text_primary"])
-        self.status_label.pack(anchor="w", pady=(0, 12))
-
-        self.status_detail_label = tk.Label(left, text="", anchor="w", justify=tk.LEFT, fg=self.colors["text_secondary"], bg=self.colors["panel_bg"], font=self.font_normal)
-        self.status_detail_label.pack(anchor="w", pady=(0, 10))
-
-        self.font_notice_label = tk.Label(left, text="", anchor="w", fg=self.colors["warning"], bg=self.colors["panel_bg"], font=self.font_normal)
-        self.font_notice_label.pack(anchor="w", pady=(0, 8))
-
-        self.chat_hint_label = tk.Label(left, text=self._ensure_text(self.tr("chat_hint")), anchor="w", fg=self.colors["hint"], bg=self.colors["panel_bg"], font=self.font_normal)
-        self.chat_hint_label.pack(anchor="w", pady=(0, 8))
-
-        self.voice_mode_title_label = tk.Label(
-            left,
-            text=self._ensure_text(self.tr("voice_mode_title")),
-            anchor="w",
-            fg=self.colors["text_secondary"],
-            bg=self.colors["panel_bg"],
-            font=self.font_normal,
-        )
-        self.voice_mode_title_label.pack(anchor="w")
-        self.voice_mode_value_label = tk.Label(
-            left,
-            textvariable=self.voice_mode_text,
-            anchor="w",
-            fg=self.colors["text_primary"],
-            bg=self.colors["panel_bg"],
-            font=self.font_normal,
-        )
-        self.voice_mode_value_label.pack(anchor="w", pady=(0, 6))
-
-        self.debug_mode_title_label = tk.Label(
-            left,
-            text=self._ensure_text(self.tr("debug_mode_title")),
-            anchor="w",
-            fg=self.colors["text_secondary"],
-            bg=self.colors["panel_bg"],
-            font=self.font_normal,
-        )
-        self.debug_mode_title_label.pack(anchor="w")
-        self.debug_mode_value_label = tk.Label(
-            left,
-            textvariable=self.debug_mode_text,
-            anchor="w",
-            fg=self.colors["text_primary"],
-            bg=self.colors["panel_bg"],
-            font=self.font_normal,
-        )
-        self.debug_mode_value_label.pack(anchor="w", pady=(0, 6))
-
-        self.debug_toggle_btn = tk.Button(
-            left,
-            text=self._ensure_text(self.tr("debug_input_toggle")),
-            command=self._toggle_debug_input,
-            font=self.font_normal,
-            relief=tk.GROOVE,
-            bd=1,
-            bg="#ffffff",
-            fg="#0f172a",
-            activebackground="#f1f5f9",
-            activeforeground="#0f172a",
-            padx=8,
-        )
-        self.debug_toggle_btn.pack(anchor="w", pady=(0, 8))
-
-        self.cmd_frame = ttk.LabelFrame(left, text=self.tr("input_label"), padding=10)
-        self.entry_input = tk.Entry(self.cmd_frame, textvariable=self.command_text, font=self.font_normal)
-        self.entry_input.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.entry_input.bind("<Return>", self._on_send)
-
-        self.send_btn = tk.Button(
-            self.cmd_frame,
-            text=self._ensure_text(self.tr("send")),
-            command=self._on_send,
-            font=self.font_normal,
-            bg="#1d4ed8",
-            fg="#ffffff",
-            activebackground="#1e40af",
-            activeforeground="#ffffff",
-            relief=tk.FLAT,
-            padx=12,
-        )
-        self.send_btn.pack(side=tk.LEFT, padx=(8, 0))
-        self._set_text_input_visibility(self._text_input_visible)
-
-        self.conversation_frame = ttk.LabelFrame(left, text=self.tr("conversation"), padding=10)
-        self.conversation_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
-
-        self.chat_box = scrolledtext.ScrolledText(
-            self.conversation_frame,
-            wrap=tk.WORD,
-            state=tk.DISABLED,
-            height=16,
-            font=self.font_normal,
-            relief=tk.SOLID,
-            bd=1,
-            bg=self.colors["card_bg"],
-            fg=self.colors["text_primary"],
-            padx=8,
-            pady=8,
-        )
-        self.chat_box.pack(fill=tk.BOTH, expand=True)
-        self._configure_chat_tags()
-
-        self._load_chat_history()
-        if not self.chat_history:
-            self.chat_history.append((self.tr("system"), self._ensure_text(self.tr("system_ready"))))
-        self._render_chat_history()
-
-        right = tk.LabelFrame(
-            body,
-            text=self.tr("dashboard"),
-            bg=self.colors["panel_bg"],
-            fg=self.colors["text_primary"],
-            highlightbackground=self.colors["card_border"],
-            highlightthickness=1,
-            padx=10,
-            pady=10,
-        )
-        self.dashboard_frame = right
-        right.grid(row=0, column=1, sticky="nsew")
-
-        self.clock_label = tk.Label(right, text="", anchor="w", font=self.font_normal, bg=self.colors["panel_bg"], fg=self.colors["text_secondary"])
-        self.clock_label.pack(anchor="w")
-
-        nav_bar = tk.Frame(right, bg=self.colors["panel_bg"])
-        nav_bar.pack(fill=tk.X, pady=(6, 4))
-
-        self.nav_back_btn = tk.Button(
-            nav_bar, text="←", command=self._nav_back,
-            state=tk.DISABLED,
-            font=self.font_normal,
-            relief=tk.GROOVE, bd=1,
-            bg="#ffffff", fg="#0f172a",
-            activebackground="#f1f5f9", activeforeground="#0f172a",
-            padx=8, pady=2,
-        )
-        self.nav_back_btn.pack(side=tk.LEFT)
-
-        self.nav_fwd_btn = tk.Button(
-            nav_bar, text="→", command=self._nav_fwd,
-            state=tk.DISABLED,
-            font=self.font_normal,
-            relief=tk.GROOVE, bd=1,
-            bg="#ffffff", fg="#0f172a",
-            activebackground="#f1f5f9", activeforeground="#0f172a",
-            padx=8, pady=2,
-        )
-        self.nav_fwd_btn.pack(side=tk.LEFT, padx=(4, 0))
-
-        self.nav_page_label = tk.Label(nav_bar, text="", anchor="w", font=self.font_normal, bg=self.colors["panel_bg"], fg=self.colors["text_secondary"])
-        self.nav_page_label.pack(side=tk.LEFT, padx=8)
-
-        self._page_container = tk.Frame(right, bg=self.colors["panel_bg"])
-        self._page_container.pack(fill=tk.BOTH, expand=True)
-
-        self.sync_label = tk.Label(right, text="", anchor="w", font=self.font_normal, bg=self.colors["panel_bg"], fg=self.colors["text_secondary"])
-        self.sync_label.pack(anchor="w", pady=(4, 0))
-
-        self._show_page("dashboard")
-        self._apply_widget_fonts()
-
-    def _set_boot_status(self) -> None:
-        if self.voice_only_mode and self.speech_enabled:
-            self._set_status(self.tr("waiting_wake_word"), self.tr("waiting_wake_word_detail"))
-        else:
-            self._set_status(self.tr("idle"), self.tr("ready_detail"))
-        self._update_debug_mode_indicator()
-        if self.lang.get() == "zh" and not self.has_cjk_font:
-            self.font_notice_label.configure(text="警告: 系統未偵測到中文字型，請安裝 fonts-noto-cjk 或 fonts-wqy-zenhei。")
-        else:
-            self.font_notice_label.configure(text="")
-
-    def _tick_clock(self) -> None:
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        self.time_text.set(now)
-        self.clock_label.configure(text=f"{self._ensure_text(self.tr('clock'))}: {now}")
-        self.sync_label.configure(text=f"{self._ensure_text(self.tr('last_sync'))}: {now}")
-        self.after(1000, self._tick_clock)
-
     def _submit_command(self, raw: str, speaker: str) -> None:
         if not raw:
             return
@@ -836,7 +853,6 @@ class DashboardApp(tk.Tk):
         if not raw:
             self._focus_input()
             return
-
         self.command_text.set("")
         self._submit_command(raw, self.tr("you"))
 
@@ -848,6 +864,30 @@ class DashboardApp(tk.Tk):
             return
         self._finish_command_flow()
         self._apply_command_result(result)
+
+    # ─── Quick commands ───────────────────────────────────────────────────────
+
+    def _run_quick_command(self, text: str) -> None:
+        self._submit_command(text, self.tr("system"))
+
+    def _quick_all_lights_on(self) -> None:
+        self._run_quick_command(self.tr("quick_all_lights_on"))
+
+    def _quick_all_lights_off(self) -> None:
+        self._run_quick_command(self.tr("quick_all_lights_off"))
+
+    def _quick_reset_device_state(self) -> None:
+        self._run_quick_command("全部關燈，關風扇，溫度設為26度")
+
+    def _quick_return_idle(self) -> None:
+        is_processing = self.tr("processing") in self.current_status.get()
+        self._discard_next_result = is_processing
+        self._force_waiting_requested = True
+        self.command_text.set("")
+        self._set_input_enabled(True)
+        self._set_status(self.tr("waiting_wake_word"), self.tr("waiting_wake_word_detail"))
+
+    # ─── Schedule helpers ─────────────────────────────────────────────────────
 
     def _read_schedule_queue(self) -> list[dict[str, Any]]:
         if not self.schedule_path.exists():
@@ -863,35 +903,231 @@ class DashboardApp(tk.Tk):
             return [x for x in payload if isinstance(x, dict)]
         return []
 
-    def _format_habits_content(self) -> str:
-        rules: list[dict[str, Any]] = []
+    # ─── Navigation ───────────────────────────────────────────────────────────
 
-        try:
-            raw_rules = json.loads(self.rules_path.read_text(encoding="utf-8")) if self.rules_path.exists() else {}
-            if isinstance(raw_rules, dict):
-                items = raw_rules.get("rules", [])
-                if isinstance(items, list):
-                    rules = [x for x in items if isinstance(x, dict)]
-            elif isinstance(raw_rules, list):
-                rules = [x for x in raw_rules if isinstance(x, dict)]
-        except Exception:
-            rules = []
+    _PAGE_TITLE_KEYS = {
+        "dashboard": "dashboard",
+        "device_state": "device_state",
+        "habits": "habits",
+        "queue": "queue",
+    }
 
-        sections: list[str] = []
-        sections.append(self._ensure_text(self.tr("habits_rules")))
-        if rules:
-            for rule in rules:
-                trigger = self._ensure_text(rule.get("trigger", "")).strip()
-                meaning = self._ensure_text(rule.get("meaning", "")).strip()
-                if trigger and meaning:
-                    sections.append(f"- {trigger} => {meaning}")
+    def _update_nav_buttons(self) -> None:
+        if not hasattr(self, "nav_back_btn"):
+            return
+        self.nav_back_btn.configure(state="normal" if self._page_history else "disabled")
+        self.nav_fwd_btn.configure(state="normal" if self._page_future else "disabled")
+        key = self._PAGE_TITLE_KEYS.get(self._current_page, self._current_page)
+        self.nav_page_label.configure(text=self._ensure_text(self.tr(key)))
+
+    def _navigate_to(self, page: str) -> None:
+        if page == self._current_page:
+            return
+        self._page_history.append(self._current_page)
+        self._page_future.clear()
+        self._current_page = page
+        self._show_page(page)
+
+    def _nav_back(self) -> None:
+        if not self._page_history:
+            return
+        self._page_future.append(self._current_page)
+        self._current_page = self._page_history.pop()
+        self._show_page(self._current_page)
+
+    def _nav_fwd(self) -> None:
+        if not self._page_future:
+            return
+        self._page_history.append(self._current_page)
+        self._current_page = self._page_future.pop()
+        self._show_page(self._current_page)
+
+    def _show_page(self, page: str) -> None:
+        for child in self._page_container.winfo_children():
+            child.destroy()
+        if page == "dashboard":
+            self._build_dashboard_page(self._page_container)
+        elif page == "device_state":
+            self._build_device_state_page(self._page_container)
+        elif page == "habits":
+            self._build_habits_page(self._page_container)
+        elif page == "queue":
+            self._build_queue_page(self._page_container)
+        self._update_nav_buttons()
+
+    # ─── Pages ────────────────────────────────────────────────────────────────
+
+    def _build_dashboard_page(self, container: ctk.CTkFrame) -> None:
+        scroll = ctk.CTkScrollableFrame(container, fg_color="transparent")
+        scroll.pack(fill="both", expand=True, padx=10, pady=10)
+
+        ctk.CTkLabel(
+            scroll, text=self.tr("quick_actions"),
+            font=self.font_title, text_color=self.colors["text_primary"], anchor="w",
+        ).pack(fill="x", pady=(0, 8))
+
+        qa_grid = ctk.CTkFrame(scroll, fg_color="transparent")
+        qa_grid.pack(fill="x", pady=(0, 16))
+        qa_grid.columnconfigure(0, weight=1)
+        qa_grid.columnconfigure(1, weight=1)
+
+        btn_configs = [
+            (self.tr("quick_all_lights_on"), self._quick_all_lights_on, "#16A34A", "#15803D", "#FFFFFF"),
+            (self.tr("quick_all_lights_off"), self._quick_all_lights_off, "#DC2626", "#B91C1C", "#FFFFFF"),
+            (self.tr("quick_reset_state"), self._quick_reset_device_state, "#D97706", "#B45309", "#FFFFFF"),
+            (self.tr("quick_return_idle"), self._quick_return_idle, "#2563EB", "#1D4ED8", "#FFFFFF"),
+        ]
+        for i, (label, cmd, fg, hover, txt) in enumerate(btn_configs):
+            ctk.CTkButton(
+                qa_grid, text=self._ensure_text(label), command=cmd,
+                font=self.font_normal, height=38, corner_radius=10,
+                fg_color=fg, hover_color=hover, text_color=txt,
+            ).grid(
+                row=i // 2, column=i % 2, sticky="ew",
+                padx=(0, 4) if i % 2 == 0 else (4, 0),
+                pady=4,
+            )
+
+        ctk.CTkLabel(
+            scroll, text="─" * 30,
+            font=self.font_normal, text_color=self.colors["hint"],
+        ).pack(fill="x", pady=(0, 8))
+
+        for page_key, label_key in [("device_state", "device_state"), ("habits", "habits"), ("queue", "queue")]:
+            ctk.CTkButton(
+                scroll, text=self._ensure_text(self.tr(label_key)),
+                command=lambda p=page_key: self._navigate_to(p),
+                font=self.font_normal, height=36, corner_radius=10,
+                fg_color=self.colors["card_bg"], hover_color=self.colors["btn_hover"],
+                text_color=self.colors["text_primary"], anchor="w",
+            ).pack(fill="x", pady=4)
+
+        ctk.CTkLabel(
+            scroll, text=self.tr("habits_hint"),
+            font=self.font_normal, text_color=self.colors["hint"],
+            anchor="w", wraplength=300,
+        ).pack(fill="x", pady=(0, 4))
+
+    def _build_device_state_page(self, container: ctk.CTkFrame) -> None:
+        scroll = ctk.CTkScrollableFrame(container, fg_color="transparent")
+        scroll.pack(fill="both", expand=True, padx=10, pady=10)
+
+        state = self.app_state.get_state()
+
+        # Climate card
+        climate_card = ctk.CTkFrame(scroll, fg_color=self.colors["card_bg"], corner_radius=12)
+        climate_card.pack(fill="x", pady=(0, 10))
+        ctk.CTkLabel(
+            climate_card,
+            text=f"{self.tr('temperature')} / {self.tr('fan')}",
+            font=self.font_title, text_color=self.colors["text_primary"], anchor="w",
+        ).pack(fill="x", padx=14, pady=(10, 6))
+
+        temp_val = str(state.get("temperature") or self.tr("unknown"))
+        self._device_row(climate_card, f"🌡  {self.tr('temperature')}", f"{temp_val}°C")
+
+        fan_on = str(state.get("fan") or "").lower() == "on"
+        fan_label = self._ensure_text(display_state_value(state.get("fan"), self.tr, self._ensure_text))
+        self._device_row(climate_card, f"🌀  {self.tr('fan')}", fan_label, on=fan_on)
+
+        amb_temp = state.get("ambient_temp")
+        self._device_row(
+            climate_card, f"🌡  {self.tr('ambient_temp')}",
+            f"{amb_temp}°C" if amb_temp is not None else self._ensure_text(self.tr("unknown")),
+        )
+        amb_hum = state.get("ambient_humidity")
+        self._device_row(
+            climate_card, f"💧  {self.tr('ambient_humidity')}",
+            f"{amb_hum}%" if amb_hum is not None else self._ensure_text(self.tr("unknown")),
+        )
+        ctk.CTkFrame(climate_card, fg_color="transparent", height=10).pack()
+
+        # Lights card
+        light_card = ctk.CTkFrame(scroll, fg_color=self.colors["card_bg"], corner_radius=12)
+        light_card.pack(fill="x", pady=(0, 10))
+        ctk.CTkLabel(
+            light_card, text=self.tr("light"),
+            font=self.font_title, text_color=self.colors["text_primary"], anchor="w",
+        ).pack(fill="x", padx=14, pady=(10, 6))
+
+        light_state = state.get("light", {})
+        loc_colors = {"KITCHEN": "#EF4444", "LIVING": "#22C55E", "GUEST": "#EAB308"}
+        if isinstance(light_state, dict) and light_state:
+            for location, status in light_state.items():
+                loc_text = display_location(location, self.tr, self._ensure_text)
+                is_on = str(status).lower() == "on"
+                dot_color = loc_colors.get(location.upper(), self.colors["success"]) if is_on else self.colors["hint"]
+                row = ctk.CTkFrame(light_card, fg_color="transparent")
+                row.pack(fill="x", padx=14, pady=3)
+                ctk.CTkLabel(row, text="●", font=self.font_status, text_color=dot_color).pack(side="left", padx=(0, 8))
+                ctk.CTkLabel(
+                    row, text=self._ensure_text(loc_text),
+                    font=self.font_normal, text_color=self.colors["text_primary"], anchor="w",
+                ).pack(side="left", fill="x", expand=True)
+                val_text = display_state_value(status, self.tr, self._ensure_text)
+                ctk.CTkLabel(
+                    row, text=self._ensure_text(val_text),
+                    font=self.font_normal,
+                    text_color=self.colors["success"] if is_on else self.colors["hint"],
+                ).pack(side="right")
         else:
-            sections.append(f"- {self._ensure_text(self.tr('habits_empty'))}")
+            ctk.CTkLabel(
+                light_card, text=self.tr("no_data"),
+                font=self.font_normal, text_color=self.colors["hint"], anchor="w",
+            ).pack(padx=14, pady=(0, 10))
+        ctk.CTkFrame(light_card, fg_color="transparent", height=10).pack()
 
-        return "\n".join(sections)
+        ctk.CTkButton(
+            scroll, text=self.tr("refresh"),
+            command=lambda: self._show_page("device_state"),
+            font=self.font_normal, height=32, corner_radius=8,
+            fg_color=self.colors["card_bg"], hover_color=self.colors["btn_hover"],
+            text_color=self.colors["text_primary"],
+        ).pack(anchor="w", pady=4)
 
-    def _set_status_async(self, state_text: str, detail_text: str) -> None:
-        self.after(0, lambda: self._set_status(state_text, detail_text))
+    def _device_row(self, parent: ctk.CTkFrame, label: str, value: str, on: bool | None = None) -> None:
+        row = ctk.CTkFrame(parent, fg_color="transparent")
+        row.pack(fill="x", padx=14, pady=3)
+        ctk.CTkLabel(
+            row, text=self._ensure_text(label),
+            font=self.font_normal, text_color=self.colors["text_secondary"], anchor="w",
+        ).pack(side="left")
+        if on is True:
+            color = self.colors["success"]
+        elif on is False:
+            color = self.colors["hint"]
+        else:
+            color = self.colors["text_primary"]
+        ctk.CTkLabel(
+            row, text=self._ensure_text(value),
+            font=self.font_normal, text_color=color, anchor="e",
+        ).pack(side="right")
+
+    def _build_habits_page(self, container: ctk.CTkFrame) -> None:
+        render_rules_panel(
+            container,
+            memory=self.memory,
+            parent=self,
+            font_normal=self.font_normal,
+            ensure_text=self._ensure_text,
+            lang=self.lang.get(),
+            colors=self.colors,
+        )
+
+    def _build_queue_page(self, container: ctk.CTkFrame) -> None:
+        render_schedule_panel(
+            container,
+            scheduler=self.agent.scheduler,
+            parent=self,
+            font_mono=self.font_mono,
+            font_normal=self.font_normal,
+            tr=self.tr,
+            ensure_text=self._ensure_text,
+            lang=self.lang.get(),
+            colors=self.colors,
+        )
+
+    # ─── Wake / Voice ─────────────────────────────────────────────────────────
 
     def _consume_force_waiting_request(self) -> bool:
         if self._force_waiting_requested:
@@ -899,39 +1135,15 @@ class DashboardApp(tk.Tk):
             return True
         return False
 
-    def _run_quick_command(self, text: str) -> None:
-        self._submit_command(text, self.tr("system"))
-
-    def _quick_all_lights_on(self) -> None:
-        self._run_quick_command(self.tr("quick_all_lights_on"))
-
-    def _quick_all_lights_off(self) -> None:
-        self._run_quick_command(self.tr("quick_all_lights_off"))
-
-    def _quick_reset_device_state(self) -> None:
-        # Keep reset action minimal and reuse existing command routing.
-        self._run_quick_command("全部關燈，關風扇，溫度設為26度")
-
-    def _quick_return_idle(self) -> None:
-        is_processing = self.tr("processing") in self.current_status.get()
-        self._discard_next_result = is_processing
-        self._force_waiting_requested = True
-        self.command_text.set("")
-        self._set_input_enabled(True)
-        self._set_status(self.tr("waiting_wake_word"), self.tr("waiting_wake_word_detail"))
-
     def _detect_wake_by_energy(self, timeout_seconds: int = 3) -> bool:
         if self._speech is None or _audioop is None:
             return False
         device = getattr(self._speech, "device", "default")
-        cmd = [
-            "arecord", "-D", str(device), "-r", "16000", "-c", "1", "-f", "S16_LE", "-t", "raw",
-        ]
+        cmd = ["arecord", "-D", str(device), "-r", "16000", "-c", "1", "-f", "S16_LE", "-t", "raw"]
         try:
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         except Exception:
             return False
-
         threshold = VOICE_WAKE_FALLBACK_THRESHOLD
         chunk_bytes = 3200
         end_at = time.time() + max(1, timeout_seconds)
@@ -979,7 +1191,6 @@ class DashboardApp(tk.Tk):
                     continue
                 if self._voice_stop_event.is_set():
                     break
-
                 self._set_status_async(self.tr("listening"), self.tr("listening_detail"))
                 try:
                     spoken = self._speech.speech_to_text(
@@ -991,7 +1202,6 @@ class DashboardApp(tk.Tk):
                     self._set_status_async(self.tr("processing"), self.tr("processing_detail"))
                 except Exception:
                     spoken = ""
-
                 if self._consume_force_waiting_request():
                     self._set_status_async(self.tr("waiting_wake_word"), self.tr("waiting_wake_word_detail"))
                     time.sleep(max(0.0, VOICE_RETRY_BACKOFF_SEC))
@@ -999,307 +1209,15 @@ class DashboardApp(tk.Tk):
                 if not spoken:
                     time.sleep(max(0.0, VOICE_RETRY_BACKOFF_SEC))
                     continue
-
                 self.after(0, lambda text=spoken: self._submit_command(text, self.tr("you")))
 
         self._voice_thread = threading.Thread(target=_voice_worker, daemon=True, name="gui-voice-loop")
         self._voice_thread.start()
 
-    _PAGE_TITLE_KEYS = {
-        "dashboard": "dashboard",
-        "device_state": "device_state",
-        "habits": "habits",
-        "queue": "queue",
-    }
+    # ─── Language ─────────────────────────────────────────────────────────────
 
-    def _update_nav_buttons(self) -> None:
-        self.nav_back_btn.configure(state=tk.NORMAL if self._page_history else tk.DISABLED)
-        self.nav_fwd_btn.configure(state=tk.NORMAL if self._page_future else tk.DISABLED)
-        key = self._PAGE_TITLE_KEYS.get(self._current_page, self._current_page)
-        self.nav_page_label.configure(text=self._ensure_text(self.tr(key)))
-
-    def _navigate_to(self, page: str) -> None:
-        if page == self._current_page:
-            return
-        self._page_history.append(self._current_page)
-        self._page_future.clear()
-        self._current_page = page
-        self._show_page(page)
-
-    def _nav_back(self) -> None:
-        if not self._page_history:
-            return
-        self._page_future.append(self._current_page)
-        self._current_page = self._page_history.pop()
-        self._show_page(self._current_page)
-
-    def _nav_fwd(self) -> None:
-        if not self._page_future:
-            return
-        self._page_history.append(self._current_page)
-        self._current_page = self._page_future.pop()
-        self._show_page(self._current_page)
-
-    def _show_page(self, page: str) -> None:
-        for child in self._page_container.winfo_children():
-            child.destroy()
-        if page == "dashboard":
-            self._build_dashboard_page(self._page_container)
-        elif page == "device_state":
-            self._build_device_state_page(self._page_container)
-        elif page == "habits":
-            self._build_habits_page(self._page_container)
-        elif page == "queue":
-            self._build_queue_page(self._page_container)
-        self._update_nav_buttons()
-
-    def _build_dashboard_page(self, container: tk.Frame) -> None:
-        qa_frame = tk.LabelFrame(
-            container,
-            text=self._ensure_text(self.tr("quick_actions")),
-            bg=self.colors["panel_bg"],
-            fg=self.colors["text_primary"],
-            highlightbackground=self.colors["card_border"],
-            highlightthickness=1,
-            padx=8, pady=8,
-        )
-        qa_frame.pack(fill=tk.X, pady=(4, 8))
-        qa_frame.columnconfigure(0, weight=1)
-        qa_frame.columnconfigure(1, weight=1)
-
-        btn_style = dict(font=self.font_normal, relief=tk.GROOVE, bd=1)
-        tk.Button(qa_frame, text=self._ensure_text(self.tr("quick_all_lights_on")),
-                  command=self._quick_all_lights_on, bg="#e8f7ee", fg="#065f46",
-                  activebackground="#d1fae5", activeforeground="#065f46", **btn_style
-                  ).grid(row=0, column=0, sticky="ew", padx=(0, 4), pady=(0, 6))
-        tk.Button(qa_frame, text=self._ensure_text(self.tr("quick_all_lights_off")),
-                  command=self._quick_all_lights_off, bg="#fef2f2", fg="#991b1b",
-                  activebackground="#fee2e2", activeforeground="#991b1b", **btn_style
-                  ).grid(row=0, column=1, sticky="ew", padx=(4, 0), pady=(0, 6))
-        tk.Button(qa_frame, text=self._ensure_text(self.tr("quick_reset_state")),
-                  command=self._quick_reset_device_state, bg="#fff7ed", fg="#9a3412",
-                  activebackground="#ffedd5", activeforeground="#9a3412", **btn_style
-                  ).grid(row=1, column=0, sticky="ew", padx=(0, 4))
-        tk.Button(qa_frame, text=self._ensure_text(self.tr("quick_return_idle")),
-                  command=self._quick_return_idle, bg="#eaf2ff", fg="#1e3a8a",
-                  activebackground="#dbeafe", activeforeground="#1e3a8a", **btn_style
-                  ).grid(row=1, column=1, sticky="ew", padx=(4, 0))
-
-        nav_style = dict(font=self.font_normal, relief=tk.GROOVE, bd=1, bg="#ffffff",
-                         fg="#0f172a", activebackground="#f1f5f9", activeforeground="#0f172a")
-        btns = tk.Frame(container, bg=self.colors["panel_bg"])
-        btns.pack(fill=tk.X, pady=(0, 4))
-        tk.Button(btns, text=self._ensure_text(self.tr("device_state")),
-                  command=lambda: self._navigate_to("device_state"), **nav_style
-                  ).pack(fill=tk.X, pady=3)
-        tk.Button(btns, text=self._ensure_text(self.tr("habits")),
-                  command=lambda: self._navigate_to("habits"), **nav_style
-                  ).pack(fill=tk.X, pady=3)
-        tk.Label(container, text=self._ensure_text(self.tr("habits_hint")),
-                 anchor="w", justify=tk.LEFT, wraplength=250,
-                 fg=self.colors["hint"], bg=self.colors["panel_bg"], font=self.font_normal
-                 ).pack(fill=tk.X, pady=(0, 4))
-        tk.Button(btns, text=self._ensure_text(self.tr("queue")),
-                  command=lambda: self._navigate_to("queue"), **nav_style
-                  ).pack(fill=tk.X, pady=3)
-
-    def _build_device_state_page(self, container: tk.Frame) -> None:
-        state = self.state.get_state()
-
-        climate_lf = ttk.LabelFrame(container, text=self._ensure_text(self.tr("temperature") + " / " + self.tr("fan")), padding=10)
-        climate_lf.pack(fill=tk.X, pady=(0, 8))
-        climate_lf.columnconfigure(1, weight=1)
-
-        rows_climate = [
-            (self.tr("temperature"), f"{state.get('temperature', self.tr('unknown'))}"),
-            (self.tr("fan"), display_state_value(state.get("fan"), self.tr, self._ensure_text)),
-            (self.tr("ambient_temp"), self._ensure_text(str(state.get("ambient_temp") or self.tr("unknown")))),
-            (self.tr("ambient_humidity"), self._ensure_text(str(state.get("ambient_humidity") or self.tr("unknown")))),
-        ]
-        for r, (label_text, value_text) in enumerate(rows_climate):
-            tk.Label(climate_lf, text=self._ensure_text(label_text), anchor="w", font=self.font_normal, fg="#374151").grid(row=r, column=0, sticky="w", pady=2, padx=(0, 16))
-            color = "#16a34a" if value_text in {self.tr("on"), "on", "On"} else ("#dc2626" if value_text in {self.tr("off"), "off", "Off"} else "#1e293b")
-            tk.Label(climate_lf, text=self._ensure_text(value_text), anchor="w", font=self.font_normal, fg=color).grid(row=r, column=1, sticky="w", pady=2)
-
-        light_lf = ttk.LabelFrame(container, text=self._ensure_text(self.tr("light")), padding=10)
-        light_lf.pack(fill=tk.X, pady=(0, 8))
-        light_lf.columnconfigure(1, weight=1)
-
-        light_state = state.get("light", {})
-        if isinstance(light_state, dict) and light_state:
-            for r, (location, status) in enumerate(light_state.items()):
-                loc_text = display_location(location, self.tr, self._ensure_text)
-                val_text = display_state_value(status, self.tr, self._ensure_text)
-                dot_color = "#16a34a" if str(status).lower() == "on" else "#9ca3af"
-                row_frame = ttk.Frame(light_lf)
-                row_frame.grid(row=r, column=0, columnspan=2, sticky="ew", pady=2)
-                tk.Label(row_frame, text="●", fg=dot_color, font=self.font_normal).pack(side=tk.LEFT, padx=(0, 6))
-                tk.Label(row_frame, text=self._ensure_text(loc_text), anchor="w", font=self.font_normal, fg="#374151").pack(side=tk.LEFT)
-                tk.Label(row_frame, text=self._ensure_text(val_text), anchor="w", font=self.font_normal, fg="#16a34a" if str(status).lower() == "on" else "#6b7280").pack(side=tk.RIGHT)
-        else:
-            tk.Label(light_lf, text=self._ensure_text(self.tr("no_data")), anchor="w", font=self.font_normal, fg="#9ca3af").grid(row=0, column=0, sticky="w")
-
-        tk.Button(
-            container, text=self._ensure_text(self.tr("refresh")),
-            command=lambda: self._show_page("device_state"),
-            font=self.font_normal, relief=tk.GROOVE, bd=1,
-            bg="#ffffff", fg="#0f172a",
-            activebackground="#f1f5f9", activeforeground="#0f172a",
-            padx=8,
-        ).pack(anchor="w", pady=(4, 0))
-
-    def _build_habits_page(self, container: tk.Frame) -> None:
-        frame = ttk.Frame(container)
-        frame.pack(fill=tk.BOTH, expand=True)
-        render_rules_panel(
-            frame,
-            memory=self.memory,
-            parent=self,
-            font_normal=self.font_normal,
-            ensure_text=self._ensure_text,
-            lang=self.lang.get(),
-        )
-
-    def _build_queue_page(self, container: tk.Frame) -> None:
-        frame = ttk.Frame(container)
-        frame.pack(fill=tk.BOTH, expand=True)
-        render_schedule_panel(
-            frame,
-            scheduler=self.agent.scheduler,
-            parent=self,
-            font_mono=self.font_mono,
-            font_normal=self.font_normal,
-            tr=self.tr,
-            ensure_text=self._ensure_text,
-            lang=self.lang.get(),
-        )
-
-    def _open_device_state(self) -> None:
-        safe_title = self._safe_child_title_text(self._ensure_text(self.tr("device_state")))
-
-        def _render(target: ttk.Frame) -> None:
-            for child in target.winfo_children():
-                child.destroy()
-
-            state = self.state.get_state()
-
-            climate_lf = ttk.LabelFrame(target, text=self._ensure_text(self.tr("temperature") + " / " + self.tr("fan")), padding=10)
-            climate_lf.pack(fill=tk.X, pady=(0, 8))
-            climate_lf.columnconfigure(1, weight=1)
-
-            rows_climate = [
-                (self.tr("temperature"), f"{state.get('temperature', self.tr('unknown'))}"),
-                (self.tr("fan"), display_state_value(state.get("fan"), self.tr, self._ensure_text)),
-                (self.tr("ambient_temp"), self._ensure_text(str(state.get("ambient_temp") or self.tr("unknown")))),
-                (self.tr("ambient_humidity"), self._ensure_text(str(state.get("ambient_humidity") or self.tr("unknown")))),
-            ]
-            for r, (label_text, value_text) in enumerate(rows_climate):
-                tk.Label(climate_lf, text=self._ensure_text(label_text), anchor="w", font=self.font_normal, fg="#374151").grid(row=r, column=0, sticky="w", pady=2, padx=(0, 16))
-                color = "#16a34a" if value_text in {self.tr("on"), "on", "On"} else ("#dc2626" if value_text in {self.tr("off"), "off", "Off"} else "#1e293b")
-                tk.Label(climate_lf, text=self._ensure_text(value_text), anchor="w", font=self.font_normal, fg=color).grid(row=r, column=1, sticky="w", pady=2)
-
-            light_lf = ttk.LabelFrame(target, text=self._ensure_text(self.tr("light")), padding=10)
-            light_lf.pack(fill=tk.X, pady=(0, 8))
-            light_lf.columnconfigure(1, weight=1)
-
-            light_state = state.get("light", {})
-            if isinstance(light_state, dict) and light_state:
-                for r, (location, status) in enumerate(light_state.items()):
-                    loc_text = display_location(location, self.tr, self._ensure_text)
-                    val_text = display_state_value(status, self.tr, self._ensure_text)
-                    dot_color = "#16a34a" if str(status).lower() == "on" else "#9ca3af"
-                    row_frame = ttk.Frame(light_lf)
-                    row_frame.grid(row=r, column=0, columnspan=2, sticky="ew", pady=2)
-                    tk.Label(row_frame, text="●", fg=dot_color, font=self.font_normal).pack(side=tk.LEFT, padx=(0, 6))
-                    tk.Label(row_frame, text=self._ensure_text(loc_text), anchor="w", font=self.font_normal, fg="#374151").pack(side=tk.LEFT)
-                    tk.Label(row_frame, text=self._ensure_text(val_text), anchor="w", font=self.font_normal, fg="#16a34a" if str(status).lower() == "on" else "#6b7280").pack(side=tk.RIGHT)
-            else:
-                tk.Label(light_lf, text=self._ensure_text(self.tr("no_data")), anchor="w", font=self.font_normal, fg="#9ca3af").grid(row=0, column=0, sticky="w")
-
-        create_panel_popup(
-            self,
-            safe_title=safe_title,
-            heading_text=self._ensure_text(self.tr("device_state")),
-            heading_font=self.font_title,
-            button_font=self.font_normal,
-            geometry="420x380",
-            refresh_label=self._ensure_text(self.tr("refresh")),
-            on_refresh=_render,
-            padding=14,
-            resizable=(False, False),
-        )
-
-    def _open_queue(self) -> None:
-        open_schedule_manager_popup(
-            self,
-            self.agent.scheduler,
-            safe_title=self._safe_child_title_text(self._ensure_text(self.tr("schedule_manager"))),
-            tr=self.tr,
-            ensure_text=self._ensure_text,
-            font_title=self.font_title,
-            font_normal=self.font_normal,
-            font_mono=self.font_mono,
-            lang=self.lang.get(),
-        )
-
-    def _open_habits(self) -> None:
-        open_rules_manager_popup(
-            self,
-            self.memory,
-            safe_title=self._safe_child_title_text(self._ensure_text(self.tr("rules_manager"))),
-            font_title=self.font_title,
-            font_normal=self.font_normal,
-            ensure_text=self._ensure_text,
-            lang=self.lang.get(),
-        )
-
-    def _open_text_window(self, title: str, content: str) -> None:
-        create_text_popup(
-            self,
-            safe_title=self._safe_child_title_text(title),
-            heading_text=self._ensure_text(title),
-            heading_font=self.font_title,
-            body_font=self.font_mono,
-            button_font=self.font_normal,
-            geometry="560x360",
-            refresh_label=self._ensure_text(self.tr("refresh")),
-            initial_content=content,
-            on_refresh=lambda: self._get_window_content(title),
-        )
-
-    def _get_window_content(self, title: str) -> str:
-        if title == self.tr("device_state"):
-            return self._format_device_state_content()
-        if title == self.tr("queue"):
-            return self._format_queue_content()
-        if title == self.tr("habits"):
-            return self._format_habits_content()
-        return self._ensure_text(self.tr("no_data"))
-
-    def _on_language_change(self, event: tk.Event | None = None) -> None:
-        self._build_fonts()
-        self._apply_widget_fonts()
-        self._set_window_title()
-        self._configure_chat_tags()
-        self.system_title.configure(text=self._ensure_text(self.tr("system_ready")))
-        self.lang_label.configure(text=f"{self._ensure_text(self.tr('lang'))}: ")
-        self.chat_hint_label.configure(text=self._ensure_text(self.tr("chat_hint")))
-        self.voice_mode_title_label.configure(text=self._ensure_text(self.tr("voice_mode_title")))
-        self.debug_mode_title_label.configure(text=self._ensure_text(self.tr("debug_mode_title")))
-        self.debug_toggle_btn.configure(text=self._ensure_text(self.tr("debug_input_toggle")))
-        self.send_btn.configure(text=self._ensure_text(self.tr("send")))
-        self.cmd_frame.configure(text=self.tr("input_label"))
-        self.conversation_frame.configure(text=self._ensure_text(self.tr("conversation")))
-        self.dashboard_frame.configure(text=self._ensure_text(self.tr("dashboard")))
-        self._show_page(self._current_page)
-        self._load_chat_history()
-        if not self.chat_history:
-            self.chat_history.append((self.tr("system"), self._ensure_text(self.tr("system_ready"))))
-        self._render_chat_history()
-        self._set_boot_status()
-        self._update_voice_mode_indicator()
-        self._update_debug_mode_indicator()
-        self._focus_input()
+    def _on_language_change(self, value: str | None = None) -> None:
+        self._rebuild_ui()
 
 
 def run_gui() -> None:
@@ -1307,6 +1225,7 @@ def run_gui() -> None:
     app = DashboardApp()
     print("[GUI] entering mainloop")
     app.mainloop()
-    
+
+
 if __name__ == "__main__":
     run_gui()
