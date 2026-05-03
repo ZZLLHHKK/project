@@ -45,7 +45,7 @@ def _speak_async(
     t.start()
 
 from src.gui.popup_views import create_panel_popup, create_text_popup
-from src.gui.schedule_popup_helper import open_schedule_manager_popup, open_rules_manager_popup
+from src.gui.schedule_popup_helper import open_schedule_manager_popup, open_rules_manager_popup, render_schedule_panel, render_rules_panel
 from src.core.scheduler_runtime import SchedulerRuntime
 from src.runtime import build_runtime
 from src.services.gui_command_service import GuiCommandPresentation, execute_gui_text_command, format_reply_for_language
@@ -253,6 +253,9 @@ class DashboardApp(tk.Tk):
         self.time_text = tk.StringVar(value="")
         self.command_text = tk.StringVar(value="")
         self.reply_text = tk.StringVar(value="")
+        self._current_page: str = "dashboard"
+        self._page_history: list[str] = []
+        self._page_future: list[str] = []
 
         env_gui_with_device = os.environ.get("GUI_WITH_DEVICE")
         if env_gui_with_device is None:
@@ -430,7 +433,7 @@ class DashboardApp(tk.Tk):
         self.font_chat_speaker = tkfont.Font(self, family=self._active_font_family, size=self.ui_font_size, weight="bold")
 
     def _apply_widget_fonts(self) -> None:
-        widgets = [
+        always_present = [
             getattr(self, "system_title", None),
             getattr(self, "lang_label", None),
             getattr(self, "status_label", None),
@@ -443,25 +446,20 @@ class DashboardApp(tk.Tk):
             getattr(self, "send_btn", None),
             getattr(self, "chat_box", None),
             getattr(self, "clock_label", None),
-            getattr(self, "quick_actions_frame", None),
-            getattr(self, "qa_lights_on_btn", None),
-            getattr(self, "qa_lights_off_btn", None),
-            getattr(self, "qa_reset_state_btn", None),
-            getattr(self, "qa_return_idle_btn", None),
-            getattr(self, "device_btn", None),
-            getattr(self, "habits_btn", None),
-            getattr(self, "queue_btn", None),
             getattr(self, "sync_label", None),
+            getattr(self, "nav_back_btn", None),
+            getattr(self, "nav_fwd_btn", None),
+            getattr(self, "nav_page_label", None),
             getattr(self, "font_notice_label", None),
         ]
-        for widget in widgets:
+        for widget in always_present:
             if widget is None:
                 continue
-            if widget is self.system_title:
+            if widget is getattr(self, "system_title", None):
                 widget.configure(font=self.font_title)
-            elif widget is self.status_label:
+            elif widget is getattr(self, "status_label", None):
                 widget.configure(font=self.font_status)
-            elif widget is self.chat_box:
+            elif widget is getattr(self, "chat_box", None):
                 widget.configure(font=self.font_normal)
             else:
                 widget.configure(font=self.font_normal)
@@ -768,123 +766,41 @@ class DashboardApp(tk.Tk):
         self.clock_label = tk.Label(right, text="", anchor="w", font=self.font_normal, bg=self.colors["panel_bg"], fg=self.colors["text_secondary"])
         self.clock_label.pack(anchor="w")
 
-        self.quick_actions_frame = tk.LabelFrame(
-            right,
-            text=self._ensure_text(self.tr("quick_actions")),
-            bg=self.colors["panel_bg"],
-            fg=self.colors["text_primary"],
-            highlightbackground=self.colors["card_border"],
-            highlightthickness=1,
-            padx=8,
-            pady=8,
-        )
-        self.quick_actions_frame.pack(fill=tk.X, pady=(8, 8))
-        self.quick_actions_frame.columnconfigure(0, weight=1)
-        self.quick_actions_frame.columnconfigure(1, weight=1)
+        nav_bar = tk.Frame(right, bg=self.colors["panel_bg"])
+        nav_bar.pack(fill=tk.X, pady=(6, 4))
 
-        self.qa_lights_on_btn = tk.Button(
-            self.quick_actions_frame,
-            text=self._ensure_text(self.tr("quick_all_lights_on")),
-            command=self._quick_all_lights_on,
+        self.nav_back_btn = tk.Button(
+            nav_bar, text="←", command=self._nav_back,
+            state=tk.DISABLED,
             font=self.font_normal,
-            bg="#e8f7ee",
-            fg="#065f46",
-            activebackground="#d1fae5",
-            activeforeground="#065f46",
-            relief=tk.GROOVE,
-            bd=1,
+            relief=tk.GROOVE, bd=1,
+            bg="#ffffff", fg="#0f172a",
+            activebackground="#f1f5f9", activeforeground="#0f172a",
+            padx=8, pady=2,
         )
-        self.qa_lights_on_btn.grid(row=0, column=0, sticky="ew", padx=(0, 4), pady=(0, 6))
+        self.nav_back_btn.pack(side=tk.LEFT)
 
-        self.qa_lights_off_btn = tk.Button(
-            self.quick_actions_frame,
-            text=self._ensure_text(self.tr("quick_all_lights_off")),
-            command=self._quick_all_lights_off,
+        self.nav_fwd_btn = tk.Button(
+            nav_bar, text="→", command=self._nav_fwd,
+            state=tk.DISABLED,
             font=self.font_normal,
-            bg="#fef2f2",
-            fg="#991b1b",
-            activebackground="#fee2e2",
-            activeforeground="#991b1b",
-            relief=tk.GROOVE,
-            bd=1,
+            relief=tk.GROOVE, bd=1,
+            bg="#ffffff", fg="#0f172a",
+            activebackground="#f1f5f9", activeforeground="#0f172a",
+            padx=8, pady=2,
         )
-        self.qa_lights_off_btn.grid(row=0, column=1, sticky="ew", padx=(4, 0), pady=(0, 6))
+        self.nav_fwd_btn.pack(side=tk.LEFT, padx=(4, 0))
 
-        self.qa_reset_state_btn = tk.Button(
-            self.quick_actions_frame,
-            text=self._ensure_text(self.tr("quick_reset_state")),
-            command=self._quick_reset_device_state,
-            font=self.font_normal,
-            bg="#fff7ed",
-            fg="#9a3412",
-            activebackground="#ffedd5",
-            activeforeground="#9a3412",
-            relief=tk.GROOVE,
-            bd=1,
-        )
-        self.qa_reset_state_btn.grid(row=1, column=0, sticky="ew", padx=(0, 4), pady=(0, 0))
+        self.nav_page_label = tk.Label(nav_bar, text="", anchor="w", font=self.font_normal, bg=self.colors["panel_bg"], fg=self.colors["text_secondary"])
+        self.nav_page_label.pack(side=tk.LEFT, padx=8)
 
-        self.qa_return_idle_btn = tk.Button(
-            self.quick_actions_frame,
-            text=self._ensure_text(self.tr("quick_return_idle")),
-            command=self._quick_return_idle,
-            font=self.font_normal,
-            bg="#eaf2ff",
-            fg="#1e3a8a",
-            activebackground="#dbeafe",
-            activeforeground="#1e3a8a",
-            relief=tk.GROOVE,
-            bd=1,
-        )
-        self.qa_return_idle_btn.grid(row=1, column=1, sticky="ew", padx=(4, 0), pady=(0, 0))
-
-        btns = tk.Frame(right, bg=self.colors["panel_bg"])
-        btns.pack(fill=tk.X, pady=(10, 8))
-        self.device_btn = tk.Button(
-            btns,
-            text=self._ensure_text(self.tr("device_state")),
-            command=self._open_device_state,
-            font=self.font_normal,
-            relief=tk.GROOVE,
-            bd=1,
-            bg="#ffffff",
-            fg="#0f172a",
-            activebackground="#f1f5f9",
-            activeforeground="#0f172a",
-        )
-        self.device_btn.pack(fill=tk.X, pady=3)
-        self.habits_btn = tk.Button(
-            btns,
-            text=self._ensure_text(self.tr("habits")),
-            command=self._open_habits,
-            font=self.font_normal,
-            relief=tk.GROOVE,
-            bd=1,
-            bg="#ffffff",
-            fg="#0f172a",
-            activebackground="#f1f5f9",
-            activeforeground="#0f172a",
-        )
-        self.habits_btn.pack(fill=tk.X, pady=3)
-        self.habits_hint_label = tk.Label(right, text=self._ensure_text(self.tr("habits_hint")), anchor="w", justify=tk.LEFT, wraplength=250, fg=self.colors["hint"], bg=self.colors["panel_bg"], font=self.font_normal)
-        self.habits_hint_label.pack(fill=tk.X, pady=(0, 8))
-        self.queue_btn = tk.Button(
-            btns,
-            text=self._ensure_text(self.tr("queue")),
-            command=self._open_queue,
-            font=self.font_normal,
-            relief=tk.GROOVE,
-            bd=1,
-            bg="#ffffff",
-            fg="#0f172a",
-            activebackground="#f1f5f9",
-            activeforeground="#0f172a",
-        )
-        self.queue_btn.pack(fill=tk.X, pady=3)
+        self._page_container = tk.Frame(right, bg=self.colors["panel_bg"])
+        self._page_container.pack(fill=tk.BOTH, expand=True)
 
         self.sync_label = tk.Label(right, text="", anchor="w", font=self.font_normal, bg=self.colors["panel_bg"], fg=self.colors["text_secondary"])
-        self.sync_label.pack(anchor="w", pady=(8, 0))
+        self.sync_label.pack(anchor="w", pady=(4, 0))
 
+        self._show_page("dashboard")
         self._apply_widget_fonts()
 
     def _set_boot_status(self) -> None:
@@ -1098,6 +1014,175 @@ class DashboardApp(tk.Tk):
         self._voice_thread = threading.Thread(target=_voice_worker, daemon=True, name="gui-voice-loop")
         self._voice_thread.start()
 
+    _PAGE_TITLE_KEYS = {
+        "dashboard": "dashboard",
+        "device_state": "device_state",
+        "habits": "habits",
+        "queue": "queue",
+    }
+
+    def _update_nav_buttons(self) -> None:
+        self.nav_back_btn.configure(state=tk.NORMAL if self._page_history else tk.DISABLED)
+        self.nav_fwd_btn.configure(state=tk.NORMAL if self._page_future else tk.DISABLED)
+        key = self._PAGE_TITLE_KEYS.get(self._current_page, self._current_page)
+        self.nav_page_label.configure(text=self._ensure_text(self.tr(key)))
+
+    def _navigate_to(self, page: str) -> None:
+        if page == self._current_page:
+            return
+        self._page_history.append(self._current_page)
+        self._page_future.clear()
+        self._current_page = page
+        self._show_page(page)
+
+    def _nav_back(self) -> None:
+        if not self._page_history:
+            return
+        self._page_future.append(self._current_page)
+        self._current_page = self._page_history.pop()
+        self._show_page(self._current_page)
+
+    def _nav_fwd(self) -> None:
+        if not self._page_future:
+            return
+        self._page_history.append(self._current_page)
+        self._current_page = self._page_future.pop()
+        self._show_page(self._current_page)
+
+    def _show_page(self, page: str) -> None:
+        for child in self._page_container.winfo_children():
+            child.destroy()
+        if page == "dashboard":
+            self._build_dashboard_page(self._page_container)
+        elif page == "device_state":
+            self._build_device_state_page(self._page_container)
+        elif page == "habits":
+            self._build_habits_page(self._page_container)
+        elif page == "queue":
+            self._build_queue_page(self._page_container)
+        self._update_nav_buttons()
+
+    def _build_dashboard_page(self, container: tk.Frame) -> None:
+        qa_frame = tk.LabelFrame(
+            container,
+            text=self._ensure_text(self.tr("quick_actions")),
+            bg=self.colors["panel_bg"],
+            fg=self.colors["text_primary"],
+            highlightbackground=self.colors["card_border"],
+            highlightthickness=1,
+            padx=8, pady=8,
+        )
+        qa_frame.pack(fill=tk.X, pady=(4, 8))
+        qa_frame.columnconfigure(0, weight=1)
+        qa_frame.columnconfigure(1, weight=1)
+
+        btn_style = dict(font=self.font_normal, relief=tk.GROOVE, bd=1)
+        tk.Button(qa_frame, text=self._ensure_text(self.tr("quick_all_lights_on")),
+                  command=self._quick_all_lights_on, bg="#e8f7ee", fg="#065f46",
+                  activebackground="#d1fae5", activeforeground="#065f46", **btn_style
+                  ).grid(row=0, column=0, sticky="ew", padx=(0, 4), pady=(0, 6))
+        tk.Button(qa_frame, text=self._ensure_text(self.tr("quick_all_lights_off")),
+                  command=self._quick_all_lights_off, bg="#fef2f2", fg="#991b1b",
+                  activebackground="#fee2e2", activeforeground="#991b1b", **btn_style
+                  ).grid(row=0, column=1, sticky="ew", padx=(4, 0), pady=(0, 6))
+        tk.Button(qa_frame, text=self._ensure_text(self.tr("quick_reset_state")),
+                  command=self._quick_reset_device_state, bg="#fff7ed", fg="#9a3412",
+                  activebackground="#ffedd5", activeforeground="#9a3412", **btn_style
+                  ).grid(row=1, column=0, sticky="ew", padx=(0, 4))
+        tk.Button(qa_frame, text=self._ensure_text(self.tr("quick_return_idle")),
+                  command=self._quick_return_idle, bg="#eaf2ff", fg="#1e3a8a",
+                  activebackground="#dbeafe", activeforeground="#1e3a8a", **btn_style
+                  ).grid(row=1, column=1, sticky="ew", padx=(4, 0))
+
+        nav_style = dict(font=self.font_normal, relief=tk.GROOVE, bd=1, bg="#ffffff",
+                         fg="#0f172a", activebackground="#f1f5f9", activeforeground="#0f172a")
+        btns = tk.Frame(container, bg=self.colors["panel_bg"])
+        btns.pack(fill=tk.X, pady=(0, 4))
+        tk.Button(btns, text=self._ensure_text(self.tr("device_state")),
+                  command=lambda: self._navigate_to("device_state"), **nav_style
+                  ).pack(fill=tk.X, pady=3)
+        tk.Button(btns, text=self._ensure_text(self.tr("habits")),
+                  command=lambda: self._navigate_to("habits"), **nav_style
+                  ).pack(fill=tk.X, pady=3)
+        tk.Label(container, text=self._ensure_text(self.tr("habits_hint")),
+                 anchor="w", justify=tk.LEFT, wraplength=250,
+                 fg=self.colors["hint"], bg=self.colors["panel_bg"], font=self.font_normal
+                 ).pack(fill=tk.X, pady=(0, 4))
+        tk.Button(btns, text=self._ensure_text(self.tr("queue")),
+                  command=lambda: self._navigate_to("queue"), **nav_style
+                  ).pack(fill=tk.X, pady=3)
+
+    def _build_device_state_page(self, container: tk.Frame) -> None:
+        state = self.state.get_state()
+
+        climate_lf = ttk.LabelFrame(container, text=self._ensure_text(self.tr("temperature") + " / " + self.tr("fan")), padding=10)
+        climate_lf.pack(fill=tk.X, pady=(0, 8))
+        climate_lf.columnconfigure(1, weight=1)
+
+        rows_climate = [
+            (self.tr("temperature"), f"{state.get('temperature', self.tr('unknown'))}"),
+            (self.tr("fan"), display_state_value(state.get("fan"), self.tr, self._ensure_text)),
+            (self.tr("ambient_temp"), self._ensure_text(str(state.get("ambient_temp") or self.tr("unknown")))),
+            (self.tr("ambient_humidity"), self._ensure_text(str(state.get("ambient_humidity") or self.tr("unknown")))),
+        ]
+        for r, (label_text, value_text) in enumerate(rows_climate):
+            tk.Label(climate_lf, text=self._ensure_text(label_text), anchor="w", font=self.font_normal, fg="#374151").grid(row=r, column=0, sticky="w", pady=2, padx=(0, 16))
+            color = "#16a34a" if value_text in {self.tr("on"), "on", "On"} else ("#dc2626" if value_text in {self.tr("off"), "off", "Off"} else "#1e293b")
+            tk.Label(climate_lf, text=self._ensure_text(value_text), anchor="w", font=self.font_normal, fg=color).grid(row=r, column=1, sticky="w", pady=2)
+
+        light_lf = ttk.LabelFrame(container, text=self._ensure_text(self.tr("light")), padding=10)
+        light_lf.pack(fill=tk.X, pady=(0, 8))
+        light_lf.columnconfigure(1, weight=1)
+
+        light_state = state.get("light", {})
+        if isinstance(light_state, dict) and light_state:
+            for r, (location, status) in enumerate(light_state.items()):
+                loc_text = display_location(location, self.tr, self._ensure_text)
+                val_text = display_state_value(status, self.tr, self._ensure_text)
+                dot_color = "#16a34a" if str(status).lower() == "on" else "#9ca3af"
+                row_frame = ttk.Frame(light_lf)
+                row_frame.grid(row=r, column=0, columnspan=2, sticky="ew", pady=2)
+                tk.Label(row_frame, text="●", fg=dot_color, font=self.font_normal).pack(side=tk.LEFT, padx=(0, 6))
+                tk.Label(row_frame, text=self._ensure_text(loc_text), anchor="w", font=self.font_normal, fg="#374151").pack(side=tk.LEFT)
+                tk.Label(row_frame, text=self._ensure_text(val_text), anchor="w", font=self.font_normal, fg="#16a34a" if str(status).lower() == "on" else "#6b7280").pack(side=tk.RIGHT)
+        else:
+            tk.Label(light_lf, text=self._ensure_text(self.tr("no_data")), anchor="w", font=self.font_normal, fg="#9ca3af").grid(row=0, column=0, sticky="w")
+
+        tk.Button(
+            container, text=self._ensure_text(self.tr("refresh")),
+            command=lambda: self._show_page("device_state"),
+            font=self.font_normal, relief=tk.GROOVE, bd=1,
+            bg="#ffffff", fg="#0f172a",
+            activebackground="#f1f5f9", activeforeground="#0f172a",
+            padx=8,
+        ).pack(anchor="w", pady=(4, 0))
+
+    def _build_habits_page(self, container: tk.Frame) -> None:
+        frame = ttk.Frame(container)
+        frame.pack(fill=tk.BOTH, expand=True)
+        render_rules_panel(
+            frame,
+            memory=self.memory,
+            parent=self,
+            font_normal=self.font_normal,
+            ensure_text=self._ensure_text,
+            lang=self.lang.get(),
+        )
+
+    def _build_queue_page(self, container: tk.Frame) -> None:
+        frame = ttk.Frame(container)
+        frame.pack(fill=tk.BOTH, expand=True)
+        render_schedule_panel(
+            frame,
+            scheduler=self.agent.scheduler,
+            parent=self,
+            font_mono=self.font_mono,
+            font_normal=self.font_normal,
+            tr=self.tr,
+            ensure_text=self._ensure_text,
+            lang=self.lang.get(),
+        )
+
     def _open_device_state(self) -> None:
         safe_title = self._safe_child_title_text(self._ensure_text(self.tr("device_state")))
 
@@ -1215,15 +1300,7 @@ class DashboardApp(tk.Tk):
         self.cmd_frame.configure(text=self.tr("input_label"))
         self.conversation_frame.configure(text=self._ensure_text(self.tr("conversation")))
         self.dashboard_frame.configure(text=self._ensure_text(self.tr("dashboard")))
-        self.quick_actions_frame.configure(text=self._ensure_text(self.tr("quick_actions")))
-        self.qa_lights_on_btn.configure(text=self._ensure_text(self.tr("quick_all_lights_on")))
-        self.qa_lights_off_btn.configure(text=self._ensure_text(self.tr("quick_all_lights_off")))
-        self.qa_reset_state_btn.configure(text=self._ensure_text(self.tr("quick_reset_state")))
-        self.qa_return_idle_btn.configure(text=self._ensure_text(self.tr("quick_return_idle")))
-        self.device_btn.configure(text=self._ensure_text(self.tr("device_state")))
-        self.habits_btn.configure(text=self._ensure_text(self.tr("habits")))
-        self.habits_hint_label.configure(text=self._ensure_text(self.tr("habits_hint")))
-        self.queue_btn.configure(text=self._ensure_text(self.tr("queue")))
+        self._show_page(self._current_page)
         self._load_chat_history()
         if not self.chat_history:
             self.chat_history.append((self.tr("system"), self._ensure_text(self.tr("system_ready"))))
