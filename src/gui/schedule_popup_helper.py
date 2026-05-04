@@ -39,9 +39,7 @@ def _make_dialog_base(
     dlg = ctk.CTkToplevel(parent)
     dlg.title(title)
     dlg.resizable(False, False)
-    dlg.grab_set()
     dlg.lift()
-    dlg.focus_force()
     _center_on_parent(dlg, parent, w, h)
 
     bg = _c(colors, "panel_bg", "#1E1E1E")
@@ -117,6 +115,9 @@ def _ctk_ask_schedule(
     _add_buttons(dlg, font, accent, text_primary, _ok, _cancel)
     entry.bind("<Return>", _ok)
     dlg.bind("<Escape>", _cancel)
+    dlg.update()
+    dlg.grab_set()
+    dlg.focus_force()
     dlg.wait_window()
     return result[0]
 
@@ -164,6 +165,9 @@ def _ctk_ask_rule(
     _add_buttons(dlg, font, accent, text_primary, _ok, _cancel)
     meaning_entry.bind("<Return>", _ok)
     dlg.bind("<Escape>", _cancel)
+    dlg.update()
+    dlg.grab_set()
+    dlg.focus_force()
     dlg.wait_window()
     return result[0]
 
