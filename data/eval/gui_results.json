@@ -1,0 +1,1419 @@
+{
+  "total_commands": 36,
+  "latency_ms": {
+    "avg": 1420.5,
+    "min": 37.4,
+    "max": 12171.6,
+    "samples": 36
+  },
+  "state_sync": {
+    "ok": 36,
+    "total": 36
+  },
+  "events": [
+    {
+      "ts": 1777913907.9695418,
+      "event": "command_sent",
+      "text": "全部開燈",
+      "ts_sent": 1777913907.969532
+    },
+    {
+      "ts": 1777913908.022614,
+      "event": "command_done",
+      "text": "全部開燈",
+      "latency_ms": 42.8,
+      "reply": "好的，廚房燈已開啟，客廳燈已開啟，客房燈已開啟。",
+      "actions": [],
+      "state_sync_ok": true,
+      "agent_state": {
+        "temperature": 26,
+        "fan": "off",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "on",
+          "GUEST": "on"
+        },
+        "mode": "normal",
+        "needs_clarification": false,
+        "clarification_message": null,
+        "ambient_temp": null,
+        "ambient_humidity": null
+      },
+      "file_state": {
+        "temperature": 26,
+        "fan": "off",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "on",
+          "GUEST": "on"
+        },
+        "mode": "normal"
+      }
+    },
+    {
+      "ts": 1777913909.5233634,
+      "event": "command_sent",
+      "text": "全部關燈",
+      "ts_sent": 1777913909.5233545
+    },
+    {
+      "ts": 1777913909.6282773,
+      "event": "command_done",
+      "text": "全部關燈",
+      "latency_ms": 82.2,
+      "reply": "好的，廚房燈已關閉，客廳燈已關閉，客房燈已關閉。",
+      "actions": [],
+      "state_sync_ok": true,
+      "agent_state": {
+        "temperature": 26,
+        "fan": "off",
+        "light": {
+          "KITCHEN": "off",
+          "LIVING": "off",
+          "GUEST": "off"
+        },
+        "mode": "normal",
+        "needs_clarification": false,
+        "clarification_message": null,
+        "ambient_temp": null,
+        "ambient_humidity": null
+      },
+      "file_state": {
+        "temperature": 26,
+        "fan": "off",
+        "light": {
+          "KITCHEN": "off",
+          "LIVING": "off",
+          "GUEST": "off"
+        },
+        "mode": "normal"
+      }
+    },
+    {
+      "ts": 1777913911.1287522,
+      "event": "command_sent",
+      "text": "開廚房燈",
+      "ts_sent": 1777913911.1287444
+    },
+    {
+      "ts": 1777913911.348434,
+      "event": "command_done",
+      "text": "開廚房燈",
+      "latency_ms": 211.3,
+      "reply": "好的，廚房燈已開啟。",
+      "actions": [],
+      "state_sync_ok": true,
+      "agent_state": {
+        "temperature": 26,
+        "fan": "off",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "off",
+          "GUEST": "off"
+        },
+        "mode": "normal",
+        "needs_clarification": false,
+        "clarification_message": null,
+        "ambient_temp": null,
+        "ambient_humidity": null
+      },
+      "file_state": {
+        "temperature": 26,
+        "fan": "off",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "off",
+          "GUEST": "off"
+        },
+        "mode": "normal"
+      }
+    },
+    {
+      "ts": 1777913912.8489742,
+      "event": "command_sent",
+      "text": "關客廳燈",
+      "ts_sent": 1777913912.8489628
+    },
+    {
+      "ts": 1777913913.1953762,
+      "event": "command_done",
+      "text": "關客廳燈",
+      "latency_ms": 234.6,
+      "reply": "好的，客廳燈已關閉。",
+      "actions": [],
+      "state_sync_ok": true,
+      "agent_state": {
+        "temperature": 26,
+        "fan": "off",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "off",
+          "GUEST": "off"
+        },
+        "mode": "normal",
+        "needs_clarification": false,
+        "clarification_message": null,
+        "ambient_temp": null,
+        "ambient_humidity": null
+      },
+      "file_state": {
+        "temperature": 26,
+        "fan": "off",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "off",
+          "GUEST": "off"
+        },
+        "mode": "normal"
+      }
+    },
+    {
+      "ts": 1777913914.7072418,
+      "event": "command_sent",
+      "text": "開風扇",
+      "ts_sent": 1777913914.7072299
+    },
+    {
+      "ts": 1777913914.9056995,
+      "event": "command_done",
+      "text": "開風扇",
+      "latency_ms": 121.2,
+      "reply": "好的，風扇已開啟。",
+      "actions": [],
+      "state_sync_ok": true,
+      "agent_state": {
+        "temperature": 26,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "off",
+          "GUEST": "off"
+        },
+        "mode": "normal",
+        "needs_clarification": false,
+        "clarification_message": null,
+        "ambient_temp": null,
+        "ambient_humidity": null
+      },
+      "file_state": {
+        "temperature": 26,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "off",
+          "GUEST": "off"
+        },
+        "mode": "normal"
+      }
+    },
+    {
+      "ts": 1777913916.41037,
+      "event": "command_sent",
+      "text": "關風扇",
+      "ts_sent": 1777913916.4103568
+    },
+    {
+      "ts": 1777913916.7473836,
+      "event": "command_done",
+      "text": "關風扇",
+      "latency_ms": 307.8,
+      "reply": "好的，風扇已關閉。",
+      "actions": [],
+      "state_sync_ok": true,
+      "agent_state": {
+        "temperature": 26,
+        "fan": "off",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "off",
+          "GUEST": "off"
+        },
+        "mode": "normal",
+        "needs_clarification": false,
+        "clarification_message": null,
+        "ambient_temp": 26,
+        "ambient_humidity": 69
+      },
+      "file_state": {
+        "temperature": 26,
+        "fan": "off",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "off",
+          "GUEST": "off"
+        },
+        "mode": "normal"
+      }
+    },
+    {
+      "ts": 1777913918.2521229,
+      "event": "command_sent",
+      "text": "溫度設為24度",
+      "ts_sent": 1777913918.2520983
+    },
+    {
+      "ts": 1777913918.4078412,
+      "event": "command_done",
+      "text": "溫度設為24度",
+      "latency_ms": 90.6,
+      "reply": "好的，溫度已設定為 24 度。",
+      "actions": [],
+      "state_sync_ok": true,
+      "agent_state": {
+        "temperature": 24,
+        "fan": "off",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "off",
+          "GUEST": "off"
+        },
+        "mode": "normal",
+        "needs_clarification": false,
+        "clarification_message": null,
+        "ambient_temp": 26,
+        "ambient_humidity": 69
+      },
+      "file_state": {
+        "temperature": 24,
+        "fan": "off",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "off",
+          "GUEST": "off"
+        },
+        "mode": "normal"
+      }
+    },
+    {
+      "ts": 1777913919.9101439,
+      "event": "command_sent",
+      "text": "開客房燈，關廚房燈",
+      "ts_sent": 1777913919.910135
+    },
+    {
+      "ts": 1777913932.0854716,
+      "event": "command_done",
+      "text": "開客房燈，關廚房燈",
+      "latency_ms": 12171.6,
+      "reply": "好的，客房燈已開啟，廚房燈已關閉。",
+      "actions": [],
+      "state_sync_ok": true,
+      "agent_state": {
+        "temperature": 24,
+        "fan": "off",
+        "light": {
+          "KITCHEN": "off",
+          "LIVING": "off",
+          "GUEST": "on"
+        },
+        "mode": "normal",
+        "needs_clarification": false,
+        "clarification_message": null,
+        "ambient_temp": 26,
+        "ambient_humidity": 69
+      },
+      "file_state": {
+        "temperature": 24,
+        "fan": "off",
+        "light": {
+          "KITCHEN": "off",
+          "LIVING": "off",
+          "GUEST": "on"
+        },
+        "mode": "normal"
+      }
+    },
+    {
+      "ts": 1777913933.5860443,
+      "event": "command_sent",
+      "text": "全部開燈，開風扇",
+      "ts_sent": 1777913933.5860305
+    },
+    {
+      "ts": 1777913933.6997418,
+      "event": "command_done",
+      "text": "全部開燈，開風扇",
+      "latency_ms": 98.0,
+      "reply": "好的，風扇已開啟，廚房燈已開啟，客廳燈已開啟，客房燈已開啟。",
+      "actions": [],
+      "state_sync_ok": true,
+      "agent_state": {
+        "temperature": 24,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "on",
+          "GUEST": "on"
+        },
+        "mode": "normal",
+        "needs_clarification": false,
+        "clarification_message": null,
+        "ambient_temp": 26,
+        "ambient_humidity": 69
+      },
+      "file_state": {
+        "temperature": 24,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "on",
+          "GUEST": "on"
+        },
+        "mode": "normal"
+      }
+    },
+    {
+      "ts": 1777913935.2032576,
+      "event": "command_sent",
+      "text": "溫度設為26度，關風扇",
+      "ts_sent": 1777913935.2032447
+    },
+    {
+      "ts": 1777913935.269863,
+      "event": "command_done",
+      "text": "溫度設為26度，關風扇",
+      "latency_ms": 41.8,
+      "reply": "好的，溫度已設定為 26 度，風扇已關閉。",
+      "actions": [],
+      "state_sync_ok": true,
+      "agent_state": {
+        "temperature": 26,
+        "fan": "off",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "on",
+          "GUEST": "on"
+        },
+        "mode": "normal",
+        "needs_clarification": false,
+        "clarification_message": null,
+        "ambient_temp": 26,
+        "ambient_humidity": 69
+      },
+      "file_state": {
+        "temperature": 26,
+        "fan": "off",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "on",
+          "GUEST": "on"
+        },
+        "mode": "normal"
+      }
+    },
+    {
+      "ts": 1777913936.7717764,
+      "event": "command_sent",
+      "text": "全部開燈然後開風扇",
+      "ts_sent": 1777913936.7717385
+    },
+    {
+      "ts": 1777913936.8250642,
+      "event": "command_done",
+      "text": "全部開燈然後開風扇",
+      "latency_ms": 37.4,
+      "reply": "好的，風扇已開啟，廚房燈已開啟，客廳燈已開啟，客房燈已開啟。",
+      "actions": [],
+      "state_sync_ok": true,
+      "agent_state": {
+        "temperature": 26,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "on",
+          "GUEST": "on"
+        },
+        "mode": "normal",
+        "needs_clarification": false,
+        "clarification_message": null,
+        "ambient_temp": 26,
+        "ambient_humidity": 69
+      },
+      "file_state": {
+        "temperature": 26,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "on",
+          "GUEST": "on"
+        },
+        "mode": "normal"
+      }
+    },
+    {
+      "ts": 1777913938.3284829,
+      "event": "command_sent",
+      "text": "把溫度調到25度然後關掉客廳燈",
+      "ts_sent": 1777913938.3284671
+    },
+    {
+      "ts": 1777913938.427051,
+      "event": "command_done",
+      "text": "把溫度調到25度然後關掉客廳燈",
+      "latency_ms": 65.8,
+      "reply": "好的，溫度已設定為 25 度，客廳燈已關閉。",
+      "actions": [],
+      "state_sync_ok": true,
+      "agent_state": {
+        "temperature": 25,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "off",
+          "GUEST": "on"
+        },
+        "mode": "normal",
+        "needs_clarification": false,
+        "clarification_message": null,
+        "ambient_temp": 26,
+        "ambient_humidity": 69
+      },
+      "file_state": {
+        "temperature": 25,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "off",
+          "GUEST": "on"
+        },
+        "mode": "normal"
+      }
+    },
+    {
+      "ts": 1777913939.9318933,
+      "event": "command_sent",
+      "text": "關掉所有燈並且開風扇",
+      "ts_sent": 1777913939.931884
+    },
+    {
+      "ts": 1777913943.0144134,
+      "event": "command_done",
+      "text": "關掉所有燈並且開風扇",
+      "latency_ms": 3044.9,
+      "reply": "好的，所有燈已關閉，風扇已開啟。",
+      "actions": [],
+      "state_sync_ok": true,
+      "agent_state": {
+        "temperature": 25,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "off",
+          "LIVING": "off",
+          "GUEST": "off"
+        },
+        "mode": "normal",
+        "needs_clarification": false,
+        "clarification_message": null,
+        "ambient_temp": 26,
+        "ambient_humidity": 69
+      },
+      "file_state": {
+        "temperature": 25,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "off",
+          "LIVING": "off",
+          "GUEST": "off"
+        },
+        "mode": "normal"
+      }
+    },
+    {
+      "ts": 1777913944.557632,
+      "event": "command_sent",
+      "text": "開廚房燈和客廳燈",
+      "ts_sent": 1777913944.5576203
+    },
+    {
+      "ts": 1777913944.9799938,
+      "event": "command_done",
+      "text": "開廚房燈和客廳燈",
+      "latency_ms": 370.3,
+      "reply": "好的，廚房燈已開啟，客廳燈已開啟。",
+      "actions": [],
+      "state_sync_ok": true,
+      "agent_state": {
+        "temperature": 25,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "on",
+          "GUEST": "off"
+        },
+        "mode": "normal",
+        "needs_clarification": false,
+        "clarification_message": null,
+        "ambient_temp": 26,
+        "ambient_humidity": 69
+      },
+      "file_state": {
+        "temperature": 25,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "on",
+          "GUEST": "off"
+        },
+        "mode": "normal"
+      }
+    },
+    {
+      "ts": 1777913946.4833944,
+      "event": "command_sent",
+      "text": "把風扇關掉，溫度設為22度",
+      "ts_sent": 1777913946.4833877
+    },
+    {
+      "ts": 1777913946.8458807,
+      "event": "command_done",
+      "text": "把風扇關掉，溫度設為22度",
+      "latency_ms": 336.0,
+      "reply": "好的，溫度已設定為 22 度，風扇已關閉。",
+      "actions": [],
+      "state_sync_ok": true,
+      "agent_state": {
+        "temperature": 22,
+        "fan": "off",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "on",
+          "GUEST": "off"
+        },
+        "mode": "normal",
+        "needs_clarification": false,
+        "clarification_message": null,
+        "ambient_temp": 26,
+        "ambient_humidity": 69
+      },
+      "file_state": {
+        "temperature": 22,
+        "fan": "off",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "on",
+          "GUEST": "off"
+        },
+        "mode": "normal"
+      }
+    },
+    {
+      "ts": 1777913948.3514442,
+      "event": "command_sent",
+      "text": "開廚房燈",
+      "ts_sent": 1777913948.351434
+    },
+    {
+      "ts": 1777913948.5275388,
+      "event": "command_done",
+      "text": "開廚房燈",
+      "latency_ms": 153.4,
+      "reply": "好的，廚房燈已開啟。",
+      "actions": [],
+      "state_sync_ok": true,
+      "agent_state": {
+        "temperature": 22,
+        "fan": "off",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "on",
+          "GUEST": "off"
+        },
+        "mode": "normal",
+        "needs_clarification": false,
+        "clarification_message": null,
+        "ambient_temp": 26,
+        "ambient_humidity": 69
+      },
+      "file_state": {
+        "temperature": 22,
+        "fan": "off",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "on",
+          "GUEST": "off"
+        },
+        "mode": "normal"
+      }
+    },
+    {
+      "ts": 1777913950.0337367,
+      "event": "command_sent",
+      "text": "溫度設為24度",
+      "ts_sent": 1777913950.033726
+    },
+    {
+      "ts": 1777913950.5150208,
+      "event": "command_done",
+      "text": "溫度設為24度",
+      "latency_ms": 454.5,
+      "reply": "好的，溫度已設定為 24 度。",
+      "actions": [],
+      "state_sync_ok": true,
+      "agent_state": {
+        "temperature": 24,
+        "fan": "off",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "on",
+          "GUEST": "off"
+        },
+        "mode": "normal",
+        "needs_clarification": false,
+        "clarification_message": null,
+        "ambient_temp": 26,
+        "ambient_humidity": 69
+      },
+      "file_state": {
+        "temperature": 24,
+        "fan": "off",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "on",
+          "GUEST": "off"
+        },
+        "mode": "normal"
+      }
+    },
+    {
+      "ts": 1777913952.0192122,
+      "event": "command_sent",
+      "text": "開風扇",
+      "ts_sent": 1777913952.0192049
+    },
+    {
+      "ts": 1777913952.443255,
+      "event": "command_done",
+      "text": "開風扇",
+      "latency_ms": 343.0,
+      "reply": "好的，風扇已開啟。",
+      "actions": [],
+      "state_sync_ok": true,
+      "agent_state": {
+        "temperature": 24,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "on",
+          "GUEST": "off"
+        },
+        "mode": "normal",
+        "needs_clarification": false,
+        "clarification_message": null,
+        "ambient_temp": 26,
+        "ambient_humidity": 69
+      },
+      "file_state": {
+        "temperature": 24,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "on",
+          "GUEST": "off"
+        },
+        "mode": "normal"
+      }
+    },
+    {
+      "ts": 1777913953.943742,
+      "event": "command_sent",
+      "text": "關廚房燈",
+      "ts_sent": 1777913953.943733
+    },
+    {
+      "ts": 1777913954.1753998,
+      "event": "command_done",
+      "text": "關廚房燈",
+      "latency_ms": 97.0,
+      "reply": "好的，廚房燈已關閉。",
+      "actions": [],
+      "state_sync_ok": true,
+      "agent_state": {
+        "temperature": 24,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "off",
+          "LIVING": "on",
+          "GUEST": "off"
+        },
+        "mode": "normal",
+        "needs_clarification": false,
+        "clarification_message": null,
+        "ambient_temp": 26,
+        "ambient_humidity": 69
+      },
+      "file_state": {
+        "temperature": 24,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "off",
+          "LIVING": "on",
+          "GUEST": "off"
+        },
+        "mode": "normal"
+      }
+    },
+    {
+      "ts": 1777913955.6773484,
+      "event": "command_sent",
+      "text": "開客廳燈",
+      "ts_sent": 1777913955.6773357
+    },
+    {
+      "ts": 1777913955.8101058,
+      "event": "command_done",
+      "text": "開客廳燈",
+      "latency_ms": 51.3,
+      "reply": "好的，客廳燈已開啟。",
+      "actions": [],
+      "state_sync_ok": true,
+      "agent_state": {
+        "temperature": 24,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "off",
+          "LIVING": "on",
+          "GUEST": "off"
+        },
+        "mode": "normal",
+        "needs_clarification": false,
+        "clarification_message": null,
+        "ambient_temp": 26,
+        "ambient_humidity": 69
+      },
+      "file_state": {
+        "temperature": 24,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "off",
+          "LIVING": "on",
+          "GUEST": "off"
+        },
+        "mode": "normal"
+      }
+    },
+    {
+      "ts": 1777913957.3147762,
+      "event": "command_sent",
+      "text": "關風扇",
+      "ts_sent": 1777913957.314755
+    },
+    {
+      "ts": 1777913957.5687203,
+      "event": "command_done",
+      "text": "關風扇",
+      "latency_ms": 141.1,
+      "reply": "好的，風扇已關閉。",
+      "actions": [],
+      "state_sync_ok": true,
+      "agent_state": {
+        "temperature": 24,
+        "fan": "off",
+        "light": {
+          "KITCHEN": "off",
+          "LIVING": "on",
+          "GUEST": "off"
+        },
+        "mode": "normal",
+        "needs_clarification": false,
+        "clarification_message": null,
+        "ambient_temp": 26,
+        "ambient_humidity": 69
+      },
+      "file_state": {
+        "temperature": 24,
+        "fan": "off",
+        "light": {
+          "KITCHEN": "off",
+          "LIVING": "on",
+          "GUEST": "off"
+        },
+        "mode": "normal"
+      }
+    },
+    {
+      "ts": 1777913959.081134,
+      "event": "command_sent",
+      "text": "全部關燈",
+      "ts_sent": 1777913959.0811067
+    },
+    {
+      "ts": 1777913959.2424688,
+      "event": "command_done",
+      "text": "全部關燈",
+      "latency_ms": 88.1,
+      "reply": "好的，廚房燈已關閉，客廳燈已關閉，客房燈已關閉。",
+      "actions": [],
+      "state_sync_ok": true,
+      "agent_state": {
+        "temperature": 24,
+        "fan": "off",
+        "light": {
+          "KITCHEN": "off",
+          "LIVING": "off",
+          "GUEST": "off"
+        },
+        "mode": "normal",
+        "needs_clarification": false,
+        "clarification_message": null,
+        "ambient_temp": 26,
+        "ambient_humidity": 69
+      },
+      "file_state": {
+        "temperature": 24,
+        "fan": "off",
+        "light": {
+          "KITCHEN": "off",
+          "LIVING": "off",
+          "GUEST": "off"
+        },
+        "mode": "normal"
+      }
+    },
+    {
+      "ts": 1777913960.7677853,
+      "event": "command_sent",
+      "text": "天氣有點熱，幫我開風扇",
+      "ts_sent": 1777913960.7677681
+    },
+    {
+      "ts": 1777913961.3795252,
+      "event": "command_done",
+      "text": "天氣有點熱，幫我開風扇",
+      "latency_ms": 541.5,
+      "reply": "好的，風扇已開啟。",
+      "actions": [],
+      "state_sync_ok": true,
+      "agent_state": {
+        "temperature": 24,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "off",
+          "LIVING": "off",
+          "GUEST": "off"
+        },
+        "mode": "normal",
+        "needs_clarification": false,
+        "clarification_message": null,
+        "ambient_temp": 26,
+        "ambient_humidity": 69
+      },
+      "file_state": {
+        "temperature": 24,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "off",
+          "LIVING": "off",
+          "GUEST": "off"
+        },
+        "mode": "normal"
+      }
+    },
+    {
+      "ts": 1777913962.8911905,
+      "event": "command_sent",
+      "text": "我要睡覺了，把燈都關掉",
+      "ts_sent": 1777913962.8911817
+    },
+    {
+      "ts": 1777913963.415327,
+      "event": "command_done",
+      "text": "我要睡覺了，把燈都關掉",
+      "latency_ms": 485.3,
+      "reply": "好的，廚房燈已關閉，客廳燈已關閉，客房燈已關閉。",
+      "actions": [],
+      "state_sync_ok": true,
+      "agent_state": {
+        "temperature": 24,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "off",
+          "LIVING": "off",
+          "GUEST": "off"
+        },
+        "mode": "normal",
+        "needs_clarification": false,
+        "clarification_message": null,
+        "ambient_temp": 26,
+        "ambient_humidity": 69
+      },
+      "file_state": {
+        "temperature": 24,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "off",
+          "LIVING": "off",
+          "GUEST": "off"
+        },
+        "mode": "normal"
+      }
+    },
+    {
+      "ts": 1777913964.9226227,
+      "event": "command_sent",
+      "text": "客廳太暗了",
+      "ts_sent": 1777913964.9226146
+    },
+    {
+      "ts": 1777913969.1497662,
+      "event": "command_done",
+      "text": "客廳太暗了",
+      "latency_ms": 4197.3,
+      "reply": "好的，您是希望開啟客廳燈嗎？",
+      "actions": [],
+      "state_sync_ok": true,
+      "agent_state": {
+        "temperature": 24,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "off",
+          "LIVING": "off",
+          "GUEST": "off"
+        },
+        "mode": "normal",
+        "needs_clarification": true,
+        "clarification_message": "好的，您是希望開啟客廳燈嗎？",
+        "ambient_temp": 26,
+        "ambient_humidity": 69
+      },
+      "file_state": {
+        "temperature": 24,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "off",
+          "LIVING": "off",
+          "GUEST": "off"
+        },
+        "mode": "normal"
+      }
+    },
+    {
+      "ts": 1777913970.650914,
+      "event": "command_sent",
+      "text": "今天好冷，溫度調高一點",
+      "ts_sent": 1777913970.6509044
+    },
+    {
+      "ts": 1777913974.9924662,
+      "event": "command_done",
+      "text": "今天好冷，溫度調高一點",
+      "latency_ms": 4320.6,
+      "reply": "好的，您希望將溫度調到幾度呢？",
+      "actions": [],
+      "state_sync_ok": true,
+      "agent_state": {
+        "temperature": 24,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "off",
+          "LIVING": "off",
+          "GUEST": "off"
+        },
+        "mode": "normal",
+        "needs_clarification": true,
+        "clarification_message": "好的，您希望將溫度調到幾度呢？",
+        "ambient_temp": 26,
+        "ambient_humidity": 69
+      },
+      "file_state": {
+        "temperature": 24,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "off",
+          "LIVING": "off",
+          "GUEST": "off"
+        },
+        "mode": "normal"
+      }
+    },
+    {
+      "ts": 1777913976.5131505,
+      "event": "command_sent",
+      "text": "幫我把環境弄舒服一點",
+      "ts_sent": 1777913976.5131307
+    },
+    {
+      "ts": 1777913979.7233713,
+      "event": "command_done",
+      "text": "幫我把環境弄舒服一點",
+      "latency_ms": 3089.1,
+      "reply": "好的，您是希望我調整溫度、風扇，還是燈光呢？或是其他的設定？",
+      "actions": [],
+      "state_sync_ok": true,
+      "agent_state": {
+        "temperature": 24,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "off",
+          "LIVING": "off",
+          "GUEST": "off"
+        },
+        "mode": "normal",
+        "needs_clarification": true,
+        "clarification_message": "好的，您是希望我調整溫度、風扇，還是燈光呢？或是其他的設定？",
+        "ambient_temp": 26,
+        "ambient_humidity": 69
+      },
+      "file_state": {
+        "temperature": 24,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "off",
+          "LIVING": "off",
+          "GUEST": "off"
+        },
+        "mode": "normal"
+      }
+    },
+    {
+      "ts": 1777913981.2395654,
+      "event": "command_sent",
+      "text": "燈開一下",
+      "ts_sent": 1777913981.239455
+    },
+    {
+      "ts": 1777913981.692083,
+      "event": "command_done",
+      "text": "燈開一下",
+      "latency_ms": 344.0,
+      "reply": "好的，廚房燈已開啟，客廳燈已開啟，客房燈已開啟。",
+      "actions": [],
+      "state_sync_ok": true,
+      "agent_state": {
+        "temperature": 24,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "on",
+          "GUEST": "on"
+        },
+        "mode": "normal",
+        "needs_clarification": true,
+        "clarification_message": "好的，您是希望我調整溫度、風扇，還是燈光呢？或是其他的設定？",
+        "ambient_temp": 26,
+        "ambient_humidity": 69
+      },
+      "file_state": {
+        "temperature": 24,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "on",
+          "GUEST": "on"
+        },
+        "mode": "normal"
+      }
+    },
+    {
+      "ts": 1777913983.250993,
+      "event": "command_sent",
+      "text": "有點悶，通風一下",
+      "ts_sent": 1777913983.2509794
+    },
+    {
+      "ts": 1777913987.3672686,
+      "event": "command_done",
+      "text": "有點悶，通風一下",
+      "latency_ms": 4061.8,
+      "reply": "好的，電扇已經開啟了。",
+      "actions": [],
+      "state_sync_ok": true,
+      "agent_state": {
+        "temperature": 24,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "on",
+          "GUEST": "on"
+        },
+        "mode": "normal",
+        "needs_clarification": false,
+        "clarification_message": null,
+        "ambient_temp": 26,
+        "ambient_humidity": 69
+      },
+      "file_state": {
+        "temperature": 24,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "on",
+          "GUEST": "on"
+        },
+        "mode": "normal"
+      }
+    },
+    {
+      "ts": 1777913988.8892589,
+      "event": "command_sent",
+      "text": "準備出門了",
+      "ts_sent": 1777913988.88925
+    },
+    {
+      "ts": 1777913991.9859982,
+      "event": "command_done",
+      "text": "準備出門了",
+      "latency_ms": 3023.1,
+      "reply": "好的，您是希望我關閉所有的燈光、風扇，還是有其他的設定需要調整呢？",
+      "actions": [],
+      "state_sync_ok": true,
+      "agent_state": {
+        "temperature": 24,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "on",
+          "GUEST": "on"
+        },
+        "mode": "normal",
+        "needs_clarification": true,
+        "clarification_message": "好的，您是希望我關閉所有的燈光、風扇，還是有其他的設定需要調整呢？",
+        "ambient_temp": 26,
+        "ambient_humidity": 69
+      },
+      "file_state": {
+        "temperature": 24,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "on",
+          "GUEST": "on"
+        },
+        "mode": "normal"
+      }
+    },
+    {
+      "ts": 1777913993.4883027,
+      "event": "command_sent",
+      "text": "睡眠模式",
+      "ts_sent": 1777913993.4882936
+    },
+    {
+      "ts": 1777913995.9921858,
+      "event": "command_done",
+      "text": "睡眠模式",
+      "latency_ms": 2480.1,
+      "reply": "您說的「睡眠模式」是指關閉所有燈光、開啟或關閉風扇、還是調整溫度呢？請您再說清楚一點。",
+      "actions": [],
+      "state_sync_ok": true,
+      "agent_state": {
+        "temperature": 24,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "on",
+          "GUEST": "on"
+        },
+        "mode": "normal",
+        "needs_clarification": true,
+        "clarification_message": "您說的「睡眠模式」是指關閉所有燈光、開啟或關閉風扇、還是調整溫度呢？請您再說清楚一點。",
+        "ambient_temp": 26,
+        "ambient_humidity": 69
+      },
+      "file_state": {
+        "temperature": 24,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "on",
+          "GUEST": "on"
+        },
+        "mode": "normal"
+      }
+    },
+    {
+      "ts": 1777913997.4947538,
+      "event": "command_sent",
+      "text": "我回來了，開燈開風扇",
+      "ts_sent": 1777913997.4947252
+    },
+    {
+      "ts": 1777913997.7978466,
+      "event": "command_done",
+      "text": "我回來了，開燈開風扇",
+      "latency_ms": 217.9,
+      "reply": "好的，風扇已開啟，廚房燈已開啟，客廳燈已開啟，客房燈已開啟。",
+      "actions": [],
+      "state_sync_ok": true,
+      "agent_state": {
+        "temperature": 24,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "on",
+          "GUEST": "on"
+        },
+        "mode": "normal",
+        "needs_clarification": true,
+        "clarification_message": "您說的「睡眠模式」是指關閉所有燈光、開啟或關閉風扇、還是調整溫度呢？請您再說清楚一點。",
+        "ambient_temp": 26,
+        "ambient_humidity": 69
+      },
+      "file_state": {
+        "temperature": 24,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "on",
+          "GUEST": "on"
+        },
+        "mode": "normal"
+      }
+    },
+    {
+      "ts": 1777913999.3029475,
+      "event": "command_sent",
+      "text": "節能模式",
+      "ts_sent": 1777913999.3029368
+    },
+    {
+      "ts": 1777914001.8952951,
+      "event": "command_done",
+      "text": "節能模式",
+      "latency_ms": 2537.7,
+      "reply": "您說的「節能模式」是指關閉某些設備、調整溫度，還是有其他的設定呢？請您再說清楚一點。",
+      "actions": [],
+      "state_sync_ok": true,
+      "agent_state": {
+        "temperature": 24,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "on",
+          "GUEST": "on"
+        },
+        "mode": "normal",
+        "needs_clarification": true,
+        "clarification_message": "您說的「節能模式」是指關閉某些設備、調整溫度，還是有其他的設定呢？請您再說清楚一點。",
+        "ambient_temp": 26,
+        "ambient_humidity": 69
+      },
+      "file_state": {
+        "temperature": 24,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "on",
+          "GUEST": "on"
+        },
+        "mode": "normal"
+      }
+    },
+    {
+      "ts": 1777914003.4270277,
+      "event": "command_sent",
+      "text": "早安，準備一下環境",
+      "ts_sent": 1777914003.4270058
+    },
+    {
+      "ts": 1777914006.7107694,
+      "event": "command_done",
+      "text": "早安，準備一下環境",
+      "latency_ms": 3192.7,
+      "reply": "您說的「準備一下環境」是指開啟燈光、風扇，還是調整溫度呢？請您再說清楚一點。",
+      "actions": [],
+      "state_sync_ok": true,
+      "agent_state": {
+        "temperature": 24,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "on",
+          "GUEST": "on"
+        },
+        "mode": "normal",
+        "needs_clarification": true,
+        "clarification_message": "您說的「準備一下環境」是指開啟燈光、風扇，還是調整溫度呢？請您再說清楚一點。",
+        "ambient_temp": 26,
+        "ambient_humidity": 69
+      },
+      "file_state": {
+        "temperature": 24,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "on",
+          "GUEST": "on"
+        },
+        "mode": "normal"
+      }
+    },
+    {
+      "ts": 1777914008.2126272,
+      "event": "command_sent",
+      "text": "太熱了而且太亮",
+      "ts_sent": 1777914008.2126107
+    },
+    {
+      "ts": 1777914011.9619684,
+      "event": "command_done",
+      "text": "太熱了而且太亮",
+      "latency_ms": 3711.8,
+      "reply": "您說的「太熱了」是希望將溫度調整到幾度呢？而「太亮」是希望關閉哪裡的燈光呢？",
+      "actions": [],
+      "state_sync_ok": true,
+      "agent_state": {
+        "temperature": 24,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "on",
+          "GUEST": "on"
+        },
+        "mode": "normal",
+        "needs_clarification": true,
+        "clarification_message": "您說的「太熱了」是希望將溫度調整到幾度呢？而「太亮」是希望關閉哪裡的燈光呢？",
+        "ambient_temp": 26,
+        "ambient_humidity": 69
+      },
+      "file_state": {
+        "temperature": 24,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "on",
+          "GUEST": "on"
+        },
+        "mode": "normal"
+      }
+    },
+    {
+      "ts": 1777914013.471204,
+      "event": "command_sent",
+      "text": "把家裡弄得舒適一點，溫度大概26度",
+      "ts_sent": 1777914013.4711857
+    },
+    {
+      "ts": 1777914013.8913844,
+      "event": "command_done",
+      "text": "把家裡弄得舒適一點，溫度大概26度",
+      "latency_ms": 349.8,
+      "reply": "好的，溫度已設定為 26 度。",
+      "actions": [],
+      "state_sync_ok": true,
+      "agent_state": {
+        "temperature": 26,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "on",
+          "GUEST": "on"
+        },
+        "mode": "normal",
+        "needs_clarification": true,
+        "clarification_message": "您說的「太熱了」是希望將溫度調整到幾度呢？而「太亮」是希望關閉哪裡的燈光呢？",
+        "ambient_temp": 26,
+        "ambient_humidity": 69
+      },
+      "file_state": {
+        "temperature": 26,
+        "fan": "on",
+        "light": {
+          "KITCHEN": "on",
+          "LIVING": "on",
+          "GUEST": "on"
+        },
+        "mode": "normal"
+      }
+    }
+  ]
+}
