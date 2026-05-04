@@ -1,22 +1,15 @@
 """
-GUI 互動量測腳本
-透過 monkey-patch SmartHomeApp 的關鍵方法，在正常使用過程中自動記錄：
-  - UI 更新延遲（從送出指令到 _apply_command_result 被呼叫的毫秒數）
-  - 狀態同步一致率（GUI 顯示的裝置狀態 vs device_state.json 實際內容）
-  - 操作步數與完成時間（每條指令視為一步，記錄總步數與每步耗時）
+GUI 互動量測腳本（全自動）
+自動依序送出 TEST_COMMANDS，等每筆回應後再送下一筆，全部完成後自動關閉視窗並輸出報告。
 
 使用方式 (在 project/ 根目錄執行):
     python scripts/eval_gui.py
     python scripts/eval_gui.py --out data/eval/gui_results.json
-
-執行流程：
-  1. 腳本啟動，GUI 視窗正常出現
-  2. 你正常操作 GUI（說話 / 輸入指令）
-  3. 關閉視窗後，腳本自動輸出量測報告
 """
 
 from __future__ import annotations
 
+import csv
 import json
 import sys
 import time
@@ -26,13 +19,34 @@ from typing import Any
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-# ── 引入 GUI app ──────────────────────────────────────────────────────────────
 from src.gui.app import DashboardApp as SmartHomeApp
 from src.utils.config import DATA_DIR
 
+# ---------------------------------------------------------------------------
+# 從 CSV 讀取測試資料
+# ---------------------------------------------------------------------------
+
+_TEST_CSV = PROJECT_ROOT / "data" / "eval" / "gui_test.csv"
+
+
+def _load_test_commands(csv_path: Path) -> list[str]:
+    if not csv_path.exists():
+        raise FileNotFoundError(f"找不到測試資料：{csv_path}")
+    commands: list[str] = []
+    with csv_path.open(encoding="utf-8-sig", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            cmd = row.get("command", "").strip()
+            if cmd:
+                commands.append(cmd)
+    return commands
+
+# 每筆指令回應後的等待間隔（秒），避免連發太快
+_INTER_CMD_DELAY_MS = 1500
+
 
 # ---------------------------------------------------------------------------
-# Event log (in-process shared list)
+# Event log
 # ---------------------------------------------------------------------------
 
 class _EventLog:
@@ -40,11 +54,7 @@ class _EventLog:
         self.events: list[dict] = []
 
     def record(self, event_type: str, **kwargs: Any) -> None:
-        self.events.append({
-            "ts": time.time(),
-            "event": event_type,
-            **kwargs,
-        })
+        self.events.append({"ts": time.time(), "event": event_type, **kwargs})
 
 
 _log = _EventLog()
@@ -60,31 +70,66 @@ def _read_device_state_file() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Monkey-patch SmartHomeApp
+# Auto-runner（event-driven，等回應後才送下一筆）
+# ---------------------------------------------------------------------------
+
+class _AutoRunner:
+    def __init__(self, app: SmartHomeApp, commands: list[str]) -> None:
+        self._app = app
+        self._commands = list(commands)
+        self._queue = list(commands)
+        self._waiting = False   # True = 已送出，等 _apply 回來
+
+    def start(self) -> None:
+        self._app.after(1500, self._send_next)
+
+    def _send_next(self) -> None:
+        if not self._queue:
+            total = len(self._commands)
+            print(f"\n[AutoRunner] 所有 {total} 筆指令已完成，關閉視窗...")
+            self._app.destroy()
+            return
+        cmd = self._queue.pop(0)
+        idx = len(self._commands) - len(self._queue)
+        total = len(self._commands)
+        print(f"[AutoRunner] #{idx:02d}/{total}  送出：{cmd}")
+        self._waiting = True
+        self._app._submit_command(cmd, "auto")
+
+    def on_command_done(self) -> None:
+        if not self._waiting:
+            return
+        self._waiting = False
+        # 等 _INTER_CMD_DELAY_MS 後送下一筆
+        self._app.after(_INTER_CMD_DELAY_MS, self._send_next)
+
+
+_runner: _AutoRunner | None = None
+
+
+# ---------------------------------------------------------------------------
+# Monkey-patch
 # ---------------------------------------------------------------------------
 
 _orig_submit = SmartHomeApp._submit_command
 _orig_apply = SmartHomeApp._apply_command_result
 
 
-def _patched_submit(self, raw: str, speaker: str) -> None:
+def _patched_submit(self: SmartHomeApp, raw: str, speaker: str) -> None:
     ts = time.time()
     _log.record("command_sent", text=raw, ts_sent=ts)
-    # Store per-instance so _apply can compute latency
     if not hasattr(self, "_eval_pending"):
         self._eval_pending = {}
     self._eval_pending[raw] = ts
     _orig_submit(self, raw, speaker)
 
 
-def _patched_apply(self, result: Any) -> None:
+def _patched_apply(self: SmartHomeApp, result: Any) -> None:
     ts_done = time.time()
     _orig_apply(self, result)
 
-    # Latency
     pending = getattr(self, "_eval_pending", {})
     if pending:
-        # Pick the oldest in-flight command
         oldest_text, ts_sent = min(pending.items(), key=lambda x: x[1])
         latency_ms = (ts_done - ts_sent) * 1000
         pending.pop(oldest_text, None)
@@ -92,11 +137,9 @@ def _patched_apply(self, result: Any) -> None:
         oldest_text = ""
         latency_ms = None
 
-    # State sync check: compare agent state vs device_state.json
     agent_state = self.app_state.get_state() if hasattr(self, "app_state") else {}
     file_state = _read_device_state_file()
     sync_ok = _check_state_sync(agent_state, file_state)
-
     actions = getattr(result, "actions_executed", None) or []
 
     _log.record(
@@ -110,34 +153,26 @@ def _patched_apply(self, result: Any) -> None:
         file_state=file_state,
     )
 
+    if _runner is not None:
+        _runner.on_command_done()
+
 
 def _check_state_sync(agent_state: dict, file_state: dict) -> bool:
-    """
-    簡易同步判斷：比對 LED 與 FAN 的 on/off 狀態是否一致。
-    agent_state 格式：{"LED_LIVING": "on", "FAN": "off", ...}
-    file_state 格式：{"led_living": "on", ...} 或 {"LED_LIVING": "on", ...}
-    """
     if not file_state:
-        return True  # 檔案不存在時視為 OK（裝置未初始化）
+        return True
 
     def _normalise(d: dict) -> dict[str, str]:
         return {k.upper(): str(v).lower() for k, v in d.items()}
 
     a = _normalise(agent_state)
     f = _normalise(file_state)
-
-    # 只比對兩者都有的 key
     common = set(a) & set(f)
     if not common:
         return True
-    for key in common:
-        if a[key] != f[key]:
-            return False
-    return True
+    return all(a[k] == f[k] for k in common)
 
 
-# Apply patches
-SmartHomeApp._submit_command = _patched_submit  # type: ignore[method-assign]
+SmartHomeApp._submit_command = _patched_submit      # type: ignore[method-assign]
 SmartHomeApp._apply_command_result = _patched_apply  # type: ignore[method-assign]
 
 
@@ -145,7 +180,7 @@ SmartHomeApp._apply_command_result = _patched_apply  # type: ignore[method-assig
 # Analysis
 # ---------------------------------------------------------------------------
 
-def _analyse(events: list[dict], out_path: Path | None) -> None:
+def _analyse(events: list[dict], out_path: Path) -> None:
     sent_events = [e for e in events if e["event"] == "command_sent"]
     done_events = [e for e in events if e["event"] == "command_done"]
 
@@ -157,7 +192,6 @@ def _analyse(events: list[dict], out_path: Path | None) -> None:
     print("  GUI 互動量測報告")
     print("═" * 58)
 
-    # 操作步數與完成時間
     print("\n── 操作步數與完成時間 ──────────────────────────────────")
     print(f"  總指令數 (步數): {total_cmds}")
     if done_events:
@@ -170,20 +204,16 @@ def _analyse(events: list[dict], out_path: Path | None) -> None:
     else:
         print("  (無完成事件)")
 
-    # UI 更新延遲
     print("\n── UI 更新延遲 ─────────────────────────────────────────")
     if latencies:
         avg_lat = sum(latencies) / len(latencies)
-        max_lat = max(latencies)
-        min_lat = min(latencies)
         print(f"  平均: {avg_lat:.0f} ms")
-        print(f"  最短: {min_lat:.0f} ms")
-        print(f"  最長: {max_lat:.0f} ms")
+        print(f"  最短: {min(latencies):.0f} ms")
+        print(f"  最長: {max(latencies):.0f} ms")
         print(f"  樣本數: {len(latencies)}")
     else:
         print("  (無量測資料)")
 
-    # 狀態同步一致率
     print("\n── 狀態同步一致率 ──────────────────────────────────────")
     if sync_results:
         sync_ok = sum(1 for v in sync_results if v)
@@ -199,7 +229,6 @@ def _analyse(events: list[dict], out_path: Path | None) -> None:
     else:
         print("  (無量測資料)")
 
-    # 各指令延遲明細
     if done_events:
         print("\n── 各指令延遲明細 ──────────────────────────────────────")
         for i, e in enumerate(done_events, 1):
@@ -211,7 +240,6 @@ def _analyse(events: list[dict], out_path: Path | None) -> None:
 
     print()
 
-    # Save JSON
     summary = {
         "total_commands": total_cmds,
         "latency_ms": {
@@ -227,10 +255,9 @@ def _analyse(events: list[dict], out_path: Path | None) -> None:
         "events": events,
     }
 
-    if out_path:
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"  結果已儲存 → {out_path}")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"  結果已儲存 → {out_path}")
 
 
 # ---------------------------------------------------------------------------
@@ -247,13 +274,18 @@ if __name__ == "__main__":
     out_path = PROJECT_ROOT / args.out
 
     print("=" * 58)
-    print("  GUI 量測模式已啟動")
-    print("  正常操作 GUI，關閉視窗後顯示量測報告")
+    print("  GUI 自動量測模式")
+    print("  視窗開啟後自動開始，全部完成後自動關閉")
     print("=" * 58)
 
-    # Launch the app (blocks until window is closed)
+    test_commands = _load_test_commands(_TEST_CSV)
+    print(f"  讀取測試資料：{_TEST_CSV.name}  共 {len(test_commands)} 筆")
+
     app = SmartHomeApp()
+
+    _runner = _AutoRunner(app, test_commands)
+    _runner.start()
+
     app.mainloop()
 
-    # After window closes, analyse
     _analyse(_log.events, out_path)
