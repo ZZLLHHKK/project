@@ -1,0 +1,35 @@
+test_id,sequence_id,step,phase,precondition,input_text,expected_route,expected_actions_json,expected_result,note
+M_001,SEQ_01,1,before_rule,reset_rules,早安,gemini,[],no_action,無規則時「早安」不應執行任何裝置
+M_002,SEQ_01,2,rule_learning,none,當我說早安，代表開客廳燈,fastpath,[],rule_saved,學習中文規則
+M_003,SEQ_01,3,after_rule,none,早安,fastpath,"[{""type"":""LED"",""location"":""LIVING"",""state"":""on""}]",success,規則觸發後應開客廳燈
+M_004,SEQ_02,1,after_rule,add_rule:早安=開客廳燈,早安,fastpath,"[{""type"":""LED"",""location"":""LIVING"",""state"":""on""}]",success,刪除前規則應正常觸發
+M_005,SEQ_02,2,rule_delete,delete_rule:早安,,-,[],rule_deleted,刪除「早安」規則
+M_006,SEQ_02,3,after_delete,none,早安,gemini,[],no_action,刪除後「早安」不應觸發任何裝置動作
+M_007,SEQ_03,1,rule_learning,reset_rules,睡覺模式代表關所有燈,fastpath,[],rule_saved,初次學習「睡覺模式」規則
+M_008,SEQ_03,2,after_rule,none,睡覺模式,fastpath,"[{""type"":""LED"",""location"":""KITCHEN"",""state"":""off""},{""type"":""LED"",""location"":""LIVING"",""state"":""off""},{""type"":""LED"",""location"":""GUEST"",""state"":""off""}]",success,睡覺模式觸發應關所有燈
+M_009,SEQ_03,3,rule_update,none,睡覺模式代表關所有燈和風扇,fastpath,[],rule_saved,更新「睡覺模式」包含風扇
+M_010,SEQ_03,4,after_update,none,睡覺模式,fastpath,"[{""type"":""LED"",""location"":""KITCHEN"",""state"":""off""},{""type"":""LED"",""location"":""LIVING"",""state"":""off""},{""type"":""LED"",""location"":""GUEST"",""state"":""off""},{""type"":""FAN"",""state"":""off""}]",success,更新後應同時關所有燈和風扇
+M_011,SEQ_04,1,before_rule,reset_rules,早安,gemini,[],no_action,記憶前基準 - 早安無動作
+M_012,SEQ_04,2,before_rule,none,睡覺了,gemini,[],no_action,記憶前基準 - 睡覺了無動作
+M_013,SEQ_04,3,rule_learning,none,當我說早安，代表開客廳燈,fastpath,[],rule_saved,學習早安規則
+M_014,SEQ_04,4,rule_learning,none,我說睡覺了代表關所有燈,fastpath,[],rule_saved,學習睡覺了規則
+M_015,SEQ_04,5,after_rule,none,早安,fastpath,"[{""type"":""LED"",""location"":""LIVING"",""state"":""on""}]",success,記憶後 - 早安應觸發開客廳燈
+M_016,SEQ_04,6,after_rule,none,睡覺了,fastpath,"[{""type"":""LED"",""location"":""KITCHEN"",""state"":""off""},{""type"":""LED"",""location"":""LIVING"",""state"":""off""},{""type"":""LED"",""location"":""GUEST"",""state"":""off""}]",success,記憶後 - 睡覺了應觸發關所有燈
+M_017,SEQ_05,1,multi_rule,reset_rules,當我說早安，代表開客廳燈,fastpath,[],rule_saved,建立第一個規則
+M_018,SEQ_05,2,multi_rule,none,我說下班了代表開廚房燈,fastpath,[],rule_saved,建立第二個規則
+M_019,SEQ_05,3,multi_rule,none,早安,fastpath,"[{""type"":""LED"",""location"":""LIVING"",""state"":""on""}]",success,多規則並存 - 早安觸發應只開客廳燈
+M_020,SEQ_05,4,multi_rule,none,下班了,fastpath,"[{""type"":""LED"",""location"":""KITCHEN"",""state"":""on""}]",success,多規則並存 - 下班了觸發應只開廚房燈
+M_021,SEQ_06,1,schedule,reset_schedules,每天早上8點開客廳燈,fastpath,[],schedule_saved,排程新增
+M_022,SEQ_06,2,schedule,none,查詢排程,fastpath,[],list_returned,確認排程列表中有早上8點
+M_023,SEQ_06,3,schedule,none,刪除早上8點的排程,fastpath,[],schedule_deleted,以時間刪除排程
+M_024,SEQ_07,1,schedule_conflict,reset_schedules,每天晚上10點關所有燈,fastpath,[],schedule_saved,新增第一條排程
+M_025,SEQ_07,2,schedule_conflict,none,每天晚上10點開風扇,fastpath,[],schedule_conflict,同時間同裝置類型應偵測衝突並拒絕
+M_026,SEQ_08,1,schedule_limit,reset_schedules,每天早上7點開客廳燈,fastpath,[],schedule_saved,排程1 of 5
+M_027,SEQ_08,2,schedule_limit,none,每天早上8點開廚房燈,fastpath,[],schedule_saved,排程2 of 5
+M_028,SEQ_08,3,schedule_limit,none,每天早上9點開客房燈,fastpath,[],schedule_saved,排程3 of 5
+M_029,SEQ_08,4,schedule_limit,none,每天晚上8點關所有燈,fastpath,[],schedule_saved,排程4 of 5
+M_030,SEQ_08,5,schedule_limit,none,每天晚上10點開風扇,fastpath,[],schedule_saved,排程5 of 5
+M_031,SEQ_08,6,schedule_limit,none,每天晚上11點關風扇,fastpath,[],schedule_fail,超過上限應拒絕新增第6條排程
+M_032,SEQ_09,1,schedule_timing,reset_schedules,,-,[],schedule_timing,腳本自動計算 now+2min 並新增排程
+M_033,SEQ_09,2,schedule_timing,wait_execution,,-,[],timing_recorded,等待排程執行並記錄實際執行時間
+M_034,SEQ_09,3,schedule_timing,none,查詢排程,fastpath,[],schedule_deleted,once 排程執行後應自動從列表移除
