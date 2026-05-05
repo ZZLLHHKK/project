@@ -172,6 +172,7 @@ def _run_timing_seq(
     scheduler: ScheduleManager,
     rows: list[dict],
 ) -> list[dict]:
+    _reset_schedules(scheduler)
     results: list[dict] = []
     now = datetime.now()
     target = now + timedelta(minutes=2)
