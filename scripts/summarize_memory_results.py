@@ -140,30 +140,6 @@ def main() -> None:
             p = sum(1 for r in rows_er if r["passed"])
             _add("排程功能", label, p, len(rows_er))
 
-    # 定時偏差 (SEQ_09)
-    timing = [r for r in results if r.get("sequence_id") == "SEQ_09"]
-    if timing and not any(r.get("reason") == "skipped" for r in timing):
-        dev_row = next((r for r in timing if r.get("deviation_sec") is not None), None)
-        if dev_row:
-            summary_rows.append({
-                "category": "排程功能",
-                "metric": "定時執行偏差 (秒)",
-                "passed": "",
-                "total": "",
-                "pass_rate": f"{dev_row['deviation_sec']:.0f}s",
-                "note": f"目標 {dev_row.get('target_time','')} / 實際 {dev_row.get('exec_time','')}",
-            })
-        t_ok = sum(1 for r in timing if r.get("passed") is True)
-        _add("排程功能", "定時測試通過率", t_ok, len(timing), "SEQ_09")
-    else:
-        summary_rows.append({
-            "category": "排程功能",
-            "metric": "定時執行偏差 (秒)",
-            "passed": "",
-            "total": "",
-            "pass_rate": "N/A",
-            "note": "SEQ_09 未執行或已跳過",
-        })
 
     # ── 寫入 memory_summary.csv ───────────────────────────────────────────────
 

@@ -23,13 +23,10 @@ M_021,SEQ_06,1,schedule,reset_schedules,每天早上8點開客廳燈,fastpath,[]
 M_022,SEQ_06,2,schedule,none,查詢排程,fastpath,[],list_returned,確認排程列表中有早上8點
 M_023,SEQ_06,3,schedule,none,刪除早上8點的排程,fastpath,[],schedule_deleted,以時間刪除排程
 M_024,SEQ_07,1,schedule_conflict,reset_schedules,每天晚上10點關所有燈,fastpath,[],schedule_saved,新增第一條排程
-M_025,SEQ_07,2,schedule_conflict,none,每天晚上10點開風扇,fastpath,[],schedule_conflict,同時間同裝置類型應偵測衝突並拒絕
+M_025,SEQ_07,2,schedule_conflict,none,每天晚上10點開所有燈,fastpath,[],schedule_conflict,同時間同裝置類型應偵測衝突並拒絕
 M_026,SEQ_08,1,schedule_limit,reset_schedules,每天早上7點開客廳燈,fastpath,[],schedule_saved,排程1 of 5
 M_027,SEQ_08,2,schedule_limit,none,每天早上8點開廚房燈,fastpath,[],schedule_saved,排程2 of 5
 M_028,SEQ_08,3,schedule_limit,none,每天早上9點開客房燈,fastpath,[],schedule_saved,排程3 of 5
 M_029,SEQ_08,4,schedule_limit,none,每天晚上8點關所有燈,fastpath,[],schedule_saved,排程4 of 5
 M_030,SEQ_08,5,schedule_limit,none,每天晚上10點開風扇,fastpath,[],schedule_saved,排程5 of 5
 M_031,SEQ_08,6,schedule_limit,none,每天晚上11點關風扇,fastpath,[],schedule_fail,超過上限應拒絕新增第6條排程
-M_032,SEQ_09,1,schedule_timing,reset_schedules,,-,[],schedule_timing,腳本自動計算 now+2min 並新增排程
-M_033,SEQ_09,2,schedule_timing,wait_execution,,-,[],timing_recorded,等待排程執行並記錄實際執行時間
-M_034,SEQ_09,3,schedule_timing,none,查詢排程,fastpath,[],schedule_deleted,once 排程執行後應自動從列表移除

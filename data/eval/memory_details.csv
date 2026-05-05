@@ -1,0 +1,33 @@
+﻿test_id,sequence_id,phase,expected_result,passed,reason,actual_reply,note
+M_001,SEQ_01,before_rule,no_action,PASS,ok,早安！請問有什麼我可以為您服務的嗎？,無規則時「早安」不應執行任何裝置
+M_002,SEQ_01,rule_learning,rule_saved,PASS,ok,好的，我記住了：早安 代表 開客廳燈,學習中文規則
+M_003,SEQ_01,after_rule,success,PASS,ok,好的，客廳燈已開啟。,規則觸發後應開客廳燈
+M_004,SEQ_02,after_rule,success,PASS,ok,好的，客廳燈已開啟。,刪除前規則應正常觸發
+M_005,SEQ_02,rule_delete,,PASS,precondition-only row,,刪除「早安」規則
+M_006,SEQ_02,after_delete,no_action,PASS,ok,早安！您有什麼需要我協助的嗎？,刪除後「早安」不應觸發任何裝置動作
+M_007,SEQ_03,rule_learning,rule_saved,PASS,ok,好的，我記住了：睡覺模式 代表 關所有燈,初次學習「睡覺模式」規則
+M_008,SEQ_03,after_rule,success,PASS,ok,好的，廚房燈已關閉，客廳燈已關閉，客房燈已關閉。,睡覺模式觸發應關所有燈
+M_009,SEQ_03,rule_update,rule_saved,PASS,ok (rule updated),好的，我記住了：睡覺模式 代表 關所有燈和風扇,更新「睡覺模式」包含風扇
+M_010,SEQ_03,after_update,success,PASS,ok,好的，風扇已關閉，廚房燈已關閉，客廳燈已關閉，客房燈已關閉。,更新後應同時關所有燈和風扇
+M_011,SEQ_04,before_rule,no_action,PASS,ok,早安！請問今天有什麼我可以為您服務的嗎？,記憶前基準 - 早安無動作
+M_012,SEQ_04,before_rule,no_action,PASS,ok,您是指要關閉燈光和風扇嗎？還是有其他的操作呢？,記憶前基準 - 睡覺了無動作
+M_013,SEQ_04,rule_learning,rule_saved,PASS,ok,好的，我記住了：早安 代表 開客廳燈,學習早安規則
+M_014,SEQ_04,rule_learning,rule_saved,PASS,ok,好的，我記住了：我說睡覺了 代表 關所有燈,學習睡覺了規則
+M_015,SEQ_04,after_rule,success,PASS,ok,好的，客廳燈已開啟。,記憶後 - 早安應觸發開客廳燈
+M_016,SEQ_04,after_rule,success,FAIL,"mismatch — got [], expected [{'type': 'LED', 'location': 'KITCHEN', 'state': 'off'}, {'type': 'LED', 'location': 'LIVING', 'state': 'off'}, {'type': 'LED', 'location': 'GUEST', 'state': 'off'}]",您是指要關閉燈光和風扇嗎？還是有其他的操作呢？,記憶後 - 睡覺了應觸發關所有燈
+M_017,SEQ_05,multi_rule,rule_saved,PASS,ok,好的，我記住了：早安 代表 開客廳燈,建立第一個規則
+M_018,SEQ_05,multi_rule,rule_saved,PASS,ok,好的，我記住了：我說下班了 代表 開廚房燈,建立第二個規則
+M_019,SEQ_05,multi_rule,success,PASS,ok,好的，客廳燈已開啟。,多規則並存 - 早安觸發應只開客廳燈
+M_020,SEQ_05,multi_rule,success,PASS,ok,好的，廚房燈已開啟。,多規則並存 - 下班了觸發應只開廚房燈
+M_021,SEQ_06,schedule,schedule_saved,PASS,ok,好的，已設定排程：08:00 客廳燈開。,排程新增
+M_022,SEQ_06,schedule,list_returned,PASS,ok,"目前的排程：
+1. 每天 08:00 開客廳燈",確認排程列表中有早上8點
+M_023,SEQ_06,schedule,schedule_deleted,PASS,ok,已刪除指定時間的排程。,以時間刪除排程
+M_024,SEQ_07,schedule_conflict,schedule_saved,PASS,ok,好的，已設定排程：22:00 廚房燈關、客廳燈關、客房燈關。,新增第一條排程
+M_025,SEQ_07,schedule_conflict,schedule_conflict,PASS,ok (not added),排程新增失敗，可能已達上限（5條）或與現有排程衝突。,同時間同裝置類型應偵測衝突並拒絕
+M_026,SEQ_08,schedule_limit,schedule_saved,PASS,ok,好的，已設定排程：07:00 客廳燈開。,排程1 of 5
+M_027,SEQ_08,schedule_limit,schedule_saved,PASS,ok,好的，已設定排程：08:00 廚房燈開。,排程2 of 5
+M_028,SEQ_08,schedule_limit,schedule_saved,PASS,ok,好的，已設定排程：09:00 客房燈開。,排程3 of 5
+M_029,SEQ_08,schedule_limit,schedule_saved,PASS,ok,好的，已設定排程：20:00 廚房燈關、客廳燈關、客房燈關。,排程4 of 5
+M_030,SEQ_08,schedule_limit,schedule_saved,PASS,ok,好的，已設定排程：22:00 風扇開。,排程5 of 5
+M_031,SEQ_08,schedule_limit,schedule_fail,PASS,ok (rejected),排程新增失敗，可能已達上限（5條）或與現有排程衝突。,超過上限應拒絕新增第6條排程
