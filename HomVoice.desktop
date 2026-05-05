@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=HomVoice
 Comment=智慧家居語音控制系統
-Exec=/home/pi/project/start.sh
+Exec=lxterminal -e bash /home/pi/Desktop/project/start.sh
 Icon=/home/pi/project/icon/icon.png
 Terminal=false
 Type=Application
