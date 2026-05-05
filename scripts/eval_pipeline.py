@@ -31,6 +31,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+# 明確從 project root 載入 .env，確保 GEMINI_API_KEY 可用
+try:
+    from dotenv import load_dotenv
+    load_dotenv(PROJECT_ROOT / ".env", override=True)
+except ImportError:
+    pass
+
 from src.core.parser.fastpath_parser import FastPathParser
 from src.core.parser.gemini_parser import GeminiParser
 
@@ -40,7 +47,7 @@ FIELDNAMES = [
     "timestamp", "run_id", "test_id", "repeat_index",
     "stt_text", "route_used",
     "record_ms", "stt_ms", "parse_ms", "action_ms", "tts_ms", "end_to_end_ms",
-    "success", "fail_stage", "note",
+    "success", "fail_stage", "reply", "note",
 ]
 
 
@@ -237,6 +244,15 @@ def main() -> None:
     memory = EvalMemory()
     state = EvalState()
 
+    # 啟動時驗證 API key 是否載入
+    import os
+    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if enable_gemini and not api_key:
+        print("[警告] GEMINI_API_KEY 未載入！Gemini 路徑將立即失敗。請確認 .env 檔案存在於 project 根目錄。")
+    else:
+        masked = f"{api_key[:6]}...{api_key[-4:]}" if api_key else "None"
+        print(f"[API]  GEMINI_API_KEY={masked}")
+
     print(f"[設定] repeat={args.repeat}, gemini={'on' if enable_gemini else 'off'}, tts={'on' if tts_enabled else 'off'}")
     print(f"[設定] 案例數={len(cases_df)}, 音檔目錄={audio_dir}\n")
 
@@ -290,6 +306,7 @@ def main() -> None:
                 "end_to_end_ms": round(end_to_end_ms, 1),
                 "success":       int(not fail_stage),
                 "fail_stage":    fail_stage,
+                "reply":         reply[:120] if reply else "",
                 "note":          note,
             }
             rows.append(row)
@@ -301,6 +318,8 @@ def main() -> None:
                 f"total={end_to_end_ms:7.0f}ms"
                 + (f" FAIL:{fail_stage}" if fail_stage else "")
             )
+            if route_used == "gemini":
+                print(f"         reply={reply[:80]}")
 
     if not rows:
         print("沒有任何案例被執行。")

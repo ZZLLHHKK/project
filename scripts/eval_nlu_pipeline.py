@@ -17,6 +17,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+# 明確從 project root 載入 .env，確保 GEMINI_API_KEY 可用
+try:
+    from dotenv import load_dotenv
+    load_dotenv(PROJECT_ROOT / ".env", override=True)
+except ImportError:
+    pass
+
 from src.core.parser.fastpath_parser import FastPathParser
 from src.core.parser.gemini_parser import GeminiParser
 
@@ -69,9 +76,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--summary", default="data/eval/nlu_summary.csv", help="Summary CSV path")
     parser.add_argument("--repeat", type=int, default=1, help="Runs per case")
     parser.add_argument(
-        "--enable-gemini",
+        "--disable-gemini",
         action="store_true",
-        help="Enable Gemini fallback when fastpath has no match",
+        help="Disable Gemini fallback (default: Gemini enabled)",
     )
     parser.add_argument(
         "--overwrite",
@@ -315,7 +322,7 @@ def main() -> None:
                 gemini=gemini,
                 memory=memory,
                 state=state,
-                enable_gemini=args.enable_gemini,
+                enable_gemini=not args.disable_gemini,
             )
 
             row_data = {
@@ -338,7 +345,7 @@ def main() -> None:
                 "execute_ms": result["execute_ms"],
                 "total_ms": result["total_ms"],
                 "repeat_index": repeat_index,
-                "gemini_enabled": int(args.enable_gemini),
+                "gemini_enabled": int(not args.disable_gemini),
             }
             rows.append(row_data)
 
