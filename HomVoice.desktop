@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=HomVoice
+Comment=智慧家居語音控制系統
+Exec=/home/pi/project/start.sh
+Icon=/home/pi/project/assets/icon.png
+Terminal=false
+Type=Application
+Categories=Utility;
+StartupNotify=true
