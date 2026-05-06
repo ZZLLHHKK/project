@@ -22,6 +22,12 @@ data/memory/long_term.jsonl
 # 本機測試用虛擬環境殘留
 scripts/.venv/
 
+# PyInstaller 打包產出
+build/
+dist/
+*.spec
+*.pkg
+
 # 敏感檔案（API key、金鑰、設定檔）
 .env
 *.env.*
