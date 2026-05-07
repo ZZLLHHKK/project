@@ -32,7 +32,7 @@ N_030,幫我設定溫度到25度,fastpath,"[{""type"":""SET_TEMP"",""value"":25}
 N_031,把溫度設到28度,fastpath,"[{""type"":""SET_TEMP"",""value"":28}]",command,none,設到 variant
 N_032,請開啟廚房的燈,fastpath,"[{""type"":""LED"",""location"":""KITCHEN"",""state"":""on""}]",command,none,開啟 keyword
 N_033,請關閉客廳的燈,fastpath,"[{""type"":""LED"",""location"":""LIVING"",""state"":""off""}]",command,none,關閉 keyword
-N_034,空調調到20度,fastpath,"[{""type"":""SET_TEMP"",""value"":20}]",command,none,空調 keyword variant
+N_034,空調調到25度,fastpath,"[{""type"":""SET_TEMP"",""value"":25}]",command,none,空調 keyword variant
 N_035,風扇先開著,fastpath,"[{""type"":""FAN"",""state"":""on""}]",command,none,先開著 variant
 N_036,幫我把客房燈打開,fastpath,"[{""type"":""LED"",""location"":""GUEST"",""state"":""on""}]",command,none,幫我打開 guest room
 N_037,把客廳的燈給我關了,fastpath,"[{""type"":""LED"",""location"":""LIVING"",""state"":""off""}]",command,none,給我關了 colloquial
@@ -47,14 +47,14 @@ N_045,幫我處理一下,gemini,[],unclear,none,ambiguous command
 N_046,你看著辦,gemini,[],unclear,none,ambiguous command
 N_047,幫我弄舒服一點,gemini,[],unclear,none,vague comfort request
 N_048,我剛剛說什麼,gemini,[],query,none,memory style query
-N_049,有點熱,gemini,[],unclear,none,vague thermal comfort implies lower temp
+N_049,有點熱,gemini,"[{""type"":""SET_TEMP"",""value"":24}]",unclear,none,vague thermal comfort implies lower temp
 N_050,開客廳跟廚房的燈,gemini,"[{""type"":""LED"",""location"":""KITCHEN"",""state"":""on""},{""type"":""LED"",""location"":""LIVING"",""state"":""on""}]",command,none,multi-device with 跟
 N_051,把客廳和廚房的燈都打開,gemini,"[{""type"":""LED"",""location"":""KITCHEN"",""state"":""on""},{""type"":""LED"",""location"":""LIVING"",""state"":""on""}]",command,none,multi-device with 和
 N_052,當我說睡覺模式就把所有燈和風扇都關掉,gemini,[],rule_learning,none,rule learning trigger
-N_053,把溫度調高一點,gemini,[],command,none,relative temp increase no fixed value
-N_054,幫我把溫度降低兩度,gemini,[],command,none,relative temp decrease by 2
-N_055,開燈,gemini,[],unclear,none,no location specified for light on
-N_056,幫我關掉燈,gemini,[],unclear,none,no location specified for light off
+N_053,把溫度調高一點,gemini,"[{""type"":""SET_TEMP"",""value"":25}]",command,none,relative temp increase no fixed value
+N_054,幫我把溫度降低兩度,gemini,"[{""type"":""SET_TEMP"",""value"":23}]",command,none,relative temp decrease by 2
+N_055,該燈,gemini,"[{""type"":""LED"",""location"":""KITCHEN"",""state"":""on""},{""type"":""LED"",""location"":""LIVING"",""state"":""on""},{""type"":""LED"",""location"":""GUEST"",""state"":""on""}]",unclear,none,no location specified for light on
+N_056,幫我寬掉登,gemini,"[{""type"":""LED"",""location"":""KITCHEN"",""state"":""off""},{""type"":""LED"",""location"":""LIVING"",""state"":""off""},{""type"":""LED"",""location"":""GUEST"",""state"":""off""}]",unclear,none,no location specified for light off
 N_057,你好,gemini,[],chat,none,greeting
 N_058,謝謝你,gemini,[],chat,none,thanks
 N_059,現在幾點,gemini,[],query,none,time query unrelated to devices
