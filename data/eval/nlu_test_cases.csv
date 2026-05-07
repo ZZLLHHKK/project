@@ -47,7 +47,7 @@ N_045,幫我處理一下,gemini,[],unclear,none,ambiguous command
 N_046,你看著辦,gemini,[],unclear,none,ambiguous command
 N_047,幫我弄舒服一點,gemini,[],unclear,none,vague comfort request
 N_048,我剛剛說什麼,gemini,[],query,none,memory style query
-N_049,有點熱,gemini,"[{""type"":""SET_TEMP"",""value"":24}]",unclear,none,vague thermal comfort implies lower temp
+N_049,有點熱,gemini,[],unclear,none,vague thermal comfort implies lower temp
 N_050,開客廳跟廚房的燈,gemini,"[{""type"":""LED"",""location"":""KITCHEN"",""state"":""on""},{""type"":""LED"",""location"":""LIVING"",""state"":""on""}]",command,none,multi-device with 跟
 N_051,把客廳和廚房的燈都打開,gemini,"[{""type"":""LED"",""location"":""KITCHEN"",""state"":""on""},{""type"":""LED"",""location"":""LIVING"",""state"":""on""}]",command,none,multi-device with 和
 N_052,當我說睡覺模式就把所有燈和風扇都關掉,gemini,[],rule_learning,none,rule learning trigger
