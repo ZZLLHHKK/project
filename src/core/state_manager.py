@@ -16,6 +16,8 @@ class StateManager:
             "LIVING": "off",
             "GUEST": "off",
         }
+        # AC state (on/off)
+        self.ac: str = "off"
         self.mode: str = "normal"
         self.needs_clarification: bool = False
         self.clarification_message: str | None = None
@@ -71,6 +73,7 @@ class StateManager:
                 )
             )
             self.mode = str(data.get("mode", "normal"))
+            self.ac = str(data.get("ac", "off")).lower()
 
     def save_state(self) -> None:
         self._state_file.parent.mkdir(parents=True, exist_ok=True)
@@ -78,6 +81,7 @@ class StateManager:
             "temperature": self.temperature,
             "fan": self.fan,
             "light": self.light,
+            "ac": self.ac,
             "mode": self.mode,
         }
         self._state_file.write_text(
@@ -94,6 +98,12 @@ class StateManager:
                 changed = True
             elif action_type == "FAN":
                 self.fan = str(action.get("state", self.fan)).lower()
+                changed = True
+            elif action_type == "AC_ON":
+                self.ac = "on"
+                changed = True
+            elif action_type == "AC_OFF":
+                self.ac = "off"
                 changed = True
             elif action_type == "LED":
                 location = str(action.get("location", "")).upper()
@@ -112,6 +122,9 @@ class StateManager:
             elif key == "fan_state":
                 self.fan = str(value).lower()
                 changed = True
+            elif key == "ac":
+                self.ac = str(value).lower()
+                changed = True
             elif key == "led_states":
                 self.light = dict(value)
                 changed = True
@@ -129,6 +142,7 @@ class StateManager:
             "temperature": self.temperature,
             "fan": self.fan,
             "light": dict(self.light),
+            "ac": self.ac,
             "mode": self.mode,
             "needs_clarification": self.needs_clarification,
             "clarification_message": self.clarification_message,

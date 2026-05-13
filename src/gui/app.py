@@ -151,6 +151,7 @@ I18N: dict[str, dict[str, str]] = {
         "quick_return_idle": "回到 Idle",
         "temperature": "設定溫度",
         "fan": "風扇",
+        "ac": "冷氣",
         "light": "燈光",
         "ambient_temp": "環境溫度",
         "ambient_humidity": "環境濕度",
@@ -224,6 +225,7 @@ I18N: dict[str, dict[str, str]] = {
         "quick_return_idle": "Return to Idle",
         "temperature": "Set Temperature",
         "fan": "Fan",
+        "ac": "AC",
         "light": "Lights",
         "ambient_temp": "Ambient Temperature",
         "ambient_humidity": "Ambient Humidity",
@@ -1022,6 +1024,11 @@ class DashboardApp(ctk.CTk):
             text=f"{self.tr('temperature')} / {self.tr('fan')}",
             font=self.font_title, text_color=self.colors["text_primary"], anchor="w",
         ).pack(fill="x", padx=14, pady=(10, 6))
+
+        # AC status (reflect actual AC on/off state)
+        ac_on = str(state.get("ac") or "").lower() == "on"
+        ac_label = self._ensure_text(display_state_value(state.get("ac"), self.tr, self._ensure_text))
+        self._device_row(climate_card, f"❄️  {self.tr('ac')}", ac_label, on=ac_on)
 
         temp_val = str(state.get("temperature") or self.tr("unknown"))
         self._device_row(climate_card, f"🌡  {self.tr('temperature')}", f"{temp_val}°C")
