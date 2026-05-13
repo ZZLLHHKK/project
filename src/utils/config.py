@@ -75,13 +75,13 @@ TTS_ENABLED = os.getenv(
 # Voice tuning
 # -------------------------
 # Start recording/transcribing when energy rises above this threshold.
-VOICE_THRESHOLD_START = int(os.getenv("VOICE_THRESHOLD_START", "650"))
+VOICE_THRESHOLD_START = int(os.getenv("VOICE_THRESHOLD_START", "500"))
 # Consider speech ended when energy stays below this threshold.
-VOICE_THRESHOLD_END = int(os.getenv("VOICE_THRESHOLD_END", "400"))
+VOICE_THRESHOLD_END = int(os.getenv("VOICE_THRESHOLD_END", "320"))
 # Continuous silence duration (seconds) required to stop capture.
-VOICE_SILENCE_TIMEOUT_SEC = float(os.getenv("VOICE_SILENCE_TIMEOUT_SEC", "1.2"))
+VOICE_SILENCE_TIMEOUT_SEC = float(os.getenv("VOICE_SILENCE_TIMEOUT_SEC", "1.0"))
 # Minimum speech duration (seconds) to accept a capture as valid input.
-VOICE_MIN_SPEECH_DURATION_SEC = float(os.getenv("VOICE_MIN_SPEECH_DURATION_SEC", "0.25"))
+VOICE_MIN_SPEECH_DURATION_SEC = float(os.getenv("VOICE_MIN_SPEECH_DURATION_SEC", "0.2"))
 VOICE_WAKE_FALLBACK_THRESHOLD = int(os.getenv("VOICE_WAKE_FALLBACK_THRESHOLD", "800"))
 # Short pause after empty/failed attempts to avoid busy retry loops.
 VOICE_RETRY_BACKOFF_SEC = float(os.getenv("VOICE_RETRY_BACKOFF_SEC", "0.5"))
