@@ -113,6 +113,7 @@ Current state:
 - kitchen light: {light.get('KITCHEN', 'off')}
 - living light: {light.get('LIVING', 'off')}
 - guest light: {light.get('GUEST', 'off')}
+- ac: {current_state.get('ac', 'off')}
 - ambient_temp: {ambient_temp}
 - ambient_humidity: {ambient_humidity}
 
