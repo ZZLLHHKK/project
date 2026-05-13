@@ -43,6 +43,7 @@ class SevenSegDisplay:
         self._value_str = "  "  # two chars
         self._running = False
         self._thread: Optional[threading.Thread] = None
+        self.last_temp: int = 26  # 記憶上次的溫度設定（預設25度）
 
     def setup(self) -> None:
         GPIO.setwarnings(False)
@@ -100,6 +101,23 @@ class SevenSegDisplay:
 
     def set_temp(self, temp: int) -> None:
         self.set_number(temp)
+        # 記憶最後一次設定的溫度
+        self.last_temp = int(temp)
+
+    def show_middle_line(self) -> None:
+        """顯示中間橫線（g線段），用於冷氣關閉狀態"""
+        with self._lock:
+            self._value_str = "--"
+        print(f"[7SEG GPIO] value=-- (AC off - middle line)")
+
+    def show_last_temp(self) -> None:
+        """顯示上次設定的溫度（冷氣開啟時）"""
+        if hasattr(self, 'last_temp'):
+            self.set_number(self.last_temp)
+            print(f"[7SEG GPIO] show last temp: {self.last_temp}")
+        else:
+            self.set_number(25)  # 預設25度
+            print(f"[7SEG GPIO] show default temp: 25")
 
     def clear(self) -> None:
         with self._lock:

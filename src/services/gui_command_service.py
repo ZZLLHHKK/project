@@ -74,6 +74,15 @@ def _sanitize_tts_reply(reply: str) -> str:
 
 def build_gui_command_presentation(result: CommandResult, language: str) -> GuiCommandPresentation:
     raw_reply = str(result.raw_reply or "")
+    # Decode JSON-style unicode escape sequences if present (e.g. "\\u5168...")
+    if "\\u" in raw_reply:
+        try:
+            import codecs
+
+            raw_reply = codecs.decode(raw_reply, "unicode_escape")
+        except Exception:
+            pass
+
     formatted_reply = format_reply_for_language(raw_reply, language)
     spoken_reply = _sanitize_tts_reply(
         format_reply_for_language(raw_reply, language)

@@ -61,6 +61,12 @@ class DeviceController:
                     self.set_fan(str(action.get("state", "off")).lower())
                 elif action_type == "SET_TEMP":
                     self.set_temp(int(action.get("value", 25)))
+                elif action_type == "AC_ON":
+                    # 冷氣開啟時顯示上次的溫度
+                    self.seven_seg.show_last_temp()
+                elif action_type == "AC_OFF":
+                    # 冷氣關閉時只顯示中間的橫線（g線段）
+                    self.seven_seg.show_middle_line()
                 else:
                     result["success"] = False
                     result["error"] = f"unsupported action: {action_type}"

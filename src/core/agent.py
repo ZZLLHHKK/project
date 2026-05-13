@@ -78,6 +78,10 @@ class SmartHomeAgent:
                 else:
                     location = labels_zh.get(loc_key, "燈")
                     parts.append(f"{location}燈已{'開啟' if is_on else '關閉'}")
+            elif action_type == "AC_ON":
+                parts.append(_t(lang, "冷氣已開啟", "AC turned on"))
+            elif action_type == "AC_OFF":
+                parts.append(_t(lang, "冷氣已關閉", "AC turned off"))
         if parts:
             return _t(lang, f"好的，{'，'.join(parts)}。", f"Done, {', '.join(parts)}.")
         return _t(lang, "好的，已為您處理。", "Done, your request has been processed.")

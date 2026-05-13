@@ -13,17 +13,30 @@ LEARN_PATTERNS = [
     re.compile(r"^\s*我說\s*(.+?)\s*(?:的)?意思是\s*(.+?)\s*$"),
     re.compile(r"^\s*(.+?)\s*代表\s*(.+?)\s*$"),
     re.compile(r"^\s*如果我說\s*(.+?)\s*[，,]?\s*(?:請|就)\s*(.+?)\s*$"),
+
+    # 中文簡化句型（高頻用法）
+    re.compile(r"^\s*當我說\s*(.+?)\s*就\s*(.+?)\s*$"),
+    re.compile(r"^\s*(.+?)\s*就是\s*(.+?)\s*$"),
+    re.compile(r"^\s*(.+?)\s*表示\s*(.+?)\s*$"),
+    re.compile(r"^\s*說\s*(.+?)\s*(?:就|代表|表示)\s*(.+?)\s*$"),
+    re.compile(r"^\s*(.+?)\s*稱為\s*(.+?)\s*$"),
+    
     # 英文句型
     re.compile(r"^\s*when(?:ever)?\s+I\s+say\s+[\"']?(.+?)[\"']?\s*,?\s*(?:it\s+)?means?\s+(.+?)\s*$", re.IGNORECASE),
     re.compile(r"^\s*if\s+I\s+say\s+[\"']?(.+?)[\"']?\s*,?\s*(?:please\s+|it\s+means?\s+)(.+?)\s*$", re.IGNORECASE),
     re.compile(r"^\s*from\s+now\s+on\s+[\"']?(.+?)[\"']?\s+(?:means?|stands?\s+for)\s+(.+?)\s*$", re.IGNORECASE),
     re.compile(r"^\s*[\"']?(.+?)[\"']?\s+stands?\s+for\s+[\"']?(.+?)[\"']?\s*$", re.IGNORECASE),
+    
+    # 英文簡化句型
+    re.compile(r"^\s*say\s+[\"']?(.+?)[\"']?\s*(?:to|for|is|=)\s*(.+?)\s*$", re.IGNORECASE),
+    re.compile(r"^\s*(?:call|name)\s+[\"']?(.+?)[\"']?\s+(?:as\s+)?[\"']?(.+?)[\"']?\s*$", re.IGNORECASE),
+    re.compile(r"^\s*[\"']?(.+?)[\"']?\s+(?:equals?|=)\s+[\"']?(.+?)[\"']?\s*$", re.IGNORECASE),
 ]
 
-LEARN_GROUP_1 = ("當我說", "以後我說", "之後我說", "如果我說",
-                  "when I say", "whenever I say", "if I say", "from now on")
-LEARN_GROUP_2 = ("代表", "意思是", "等於", "就是", "就",
-                  "means", "stands for")
+LEARN_GROUP_1 = ("當我說", "以後我說", "之後我說", "如果我說", "說",
+                  "when I say", "whenever I say", "if I say", "from now on", "say")
+LEARN_GROUP_2 = ("代表", "意思是", "表示", "等於", "就是", "就", "稱為",
+                  "means", "stands for", "equals", "is")
 
 TEMP_KEYWORDS = (
     "溫度",
@@ -42,6 +55,9 @@ TEMP_KEYWORDS = (
     "set temperature",
     "thermostat",
 )
+AC_KEYWORDS = ("冷氣", "空調", "ac", "air conditioner", "air condition")
+AC_ON_KEYWORDS = ("開", "打開", "開啟", "on", "turn on", "enable")
+AC_OFF_KEYWORDS = ("關", "關掉", "關閉", "off", "turn off", "disable")
 NUM_RE = re.compile(r"(-?\d+(?:\.\d+)?)\s*(?:度|°|c|℃)?", re.IGNORECASE)
 _TEMP_WITH_UNIT_RE = re.compile(r"(-?\d+(?:\.\d+)?)\s*(?:度|°|℃)", re.IGNORECASE)
 _TIME_NUM_RE = re.compile(r"\d+\s*(?:點|時|分|秒)")
@@ -184,6 +200,30 @@ class FastPathParser:
                     text = text.replace(trigger, meaning)
         return text
 
+    def _parse_ac(self, text: str) -> Optional[list[dict[str, Any]]]:
+        """解析冷氣開關指令（不含溫度數值）"""
+        lowered = text.lower()
+        has_ac = any(keyword in lowered or keyword in text for keyword in AC_KEYWORDS)
+        
+        if not has_ac:
+            return None
+        
+        # 檢查是否只有開/關，沒有數字（溫度）
+        has_number = bool(NUM_RE.search(text))
+        if has_number:
+            # 如果有數字，交給溫度 parser 處理
+            return None
+        
+        # 冷氣開啟
+        if _contains_any(text, AC_ON_KEYWORDS) and not _contains_any(text, AC_OFF_KEYWORDS):
+            return [{"type": "AC_ON", "state": "on"}]
+        
+        # 冷氣關閉
+        if _contains_any(text, AC_OFF_KEYWORDS) and not _contains_any(text, AC_ON_KEYWORDS):
+            return [{"type": "AC_OFF", "state": "off"}]
+        
+        return None
+
     def _parse_temperature(self, text: str) -> Optional[list[dict[str, Any]]]:
         lowered = text.lower()
         if not any(keyword in lowered for keyword in TEMP_KEYWORDS):
@@ -292,7 +332,8 @@ class FastPathParser:
         # 收集所有 parser 結果，支援多設備複合指令（如「開風扇並設溫度28度」）
         combined: list[dict[str, Any]] = []
         seen: set[str] = set()
-        for parser in (self._parse_temperature, self._parse_fan, self._parse_lights):
+        # 冷氣 parser 優先，避免與溫度設定重疊
+        for parser in (self._parse_ac, self._parse_temperature, self._parse_fan, self._parse_lights):
             actions = parser(rewritten)
             if not actions:
                 continue

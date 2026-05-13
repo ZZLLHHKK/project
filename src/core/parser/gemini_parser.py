@@ -74,6 +74,8 @@ Device action schema (execute immediately):
 - {{"type": "SET_TEMP", "value": 26}}
 - {{"type": "FAN", "state": "on"}}
 - {{"type": "LED", "location": "KITCHEN", "state": "off"}}
+- {{"type": "AC_ON"}}  # turn on AC and show last temperature
+- {{"type": "AC_OFF"}}  # turn off AC and show middle line on 7-segment
 
 Rule-learning action schema:
 - {{"type": "LEARN_RULE", "trigger": "我要睡了", "meaning": "全部關燈並關風扇"}}

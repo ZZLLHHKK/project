@@ -24,6 +24,8 @@ data/memory/rules.json
 
 # 本機測試用虛擬環境殘留
 scripts/.venv/
+*.pdf
+*.docx
 
 # PyInstaller 打包產出
 build/

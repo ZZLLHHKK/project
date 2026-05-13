@@ -123,6 +123,7 @@ NUM_MAP = {
     '8': (0,0,0,0,0,0,0),
     '9': (0,0,0,0,1,0,0),
     ' ': (1,1,1,1,1,1,1),
+    '-': (1,1,1,1,1,1,0),  # middle horizontal line (只有g线段)
 }
 
 # Digit enable polarity (from temp_7seg_fuzzy_memory.py)
