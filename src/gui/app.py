@@ -1031,7 +1031,7 @@ class DashboardApp(ctk.CTk):
         self._device_row(climate_card, f"❄️  {self.tr('ac')}", ac_label, on=ac_on)
 
         temp_val = str(state.get("temperature") or self.tr("unknown"))
-        self._device_row(climate_card, f"♨  {self.tr('temperature')}", f"{temp_val}°C")
+        self._device_row(climate_card, f"℃  {self.tr('temperature')}", f"{temp_val}°C")
 
         fan_on = str(state.get("fan") or "").lower() == "on"
         fan_label = self._ensure_text(display_state_value(state.get("fan"), self.tr, self._ensure_text))
@@ -1039,7 +1039,7 @@ class DashboardApp(ctk.CTk):
 
         amb_temp = state.get("ambient_temp")
         self._device_row(
-            climate_card, f"♨  {self.tr('ambient_temp')}",
+            climate_card, f"℃  {self.tr('ambient_temp')}",
             f"{amb_temp}°C" if amb_temp is not None else self._ensure_text(self.tr("unknown")),
         )
         amb_hum = state.get("ambient_humidity")
