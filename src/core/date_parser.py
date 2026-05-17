@@ -60,6 +60,10 @@ class DateParser:
         return None
 
     def _parse_date(self, text: str) -> Optional[dict]:
+        if "今天" in text:
+            d = self.today
+            return {"year": d.year, "month": d.month, "day": d.day, "recurrence": "once"}
+
         if "明天" in text:
             d = self.today + timedelta(days=1)
             return {"year": d.year, "month": d.month, "day": d.day, "recurrence": "once"}

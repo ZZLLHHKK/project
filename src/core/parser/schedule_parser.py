@@ -274,10 +274,11 @@ class ScheduleFastPathParser:
 
         extra: dict[str, Any] = {}
         recurrence = str(parsed.get("recurrence") or "")
+        has_date = any(key in parsed for key in ("year", "month", "day"))
         if recurrence:
             extra["recurrence"] = recurrence
         else:
-            extra["recurrence"] = "daily"
+            extra["recurrence"] = "once" if has_date else "daily"
 
         for key in ("year", "month", "day", "weekday"):
             if key in parsed:
