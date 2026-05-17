@@ -586,7 +586,11 @@ class SmartHomeAgent:
                         next_item = remaining_hours[0]
                         next_hour = int(next_item.get("hour", 0))
                         next_tail = (next_item.get("tail", "") or "").strip()
-                        next_question = f"請問是早上{next_hour}點還是晚上{next_hour}點{next_tail}呢？"
+                        next_question = (
+                            f"Do you mean {next_hour} AM or {next_hour} PM?"
+                            if lang == "en"
+                            else f"請問是早上{next_hour}點還是晚上{next_hour}點{next_tail}呢？"
+                        )
                         self.state.needs_clarification = True
                         self.state.clarification_message = next_question
                         self.state.clarification_context = clean_input
@@ -642,7 +646,11 @@ class SmartHomeAgent:
             first = ambiguous_hours[0]
             hour = int(first.get("hour", 0))
             action_tail = (first.get("tail", "") or "").strip()
-            question = f"請問是早上{hour}點還是晚上{hour}點{action_tail}呢？"
+            question = (
+                f"Do you mean {hour} AM or {hour} PM?"
+                if lang == "en"
+                else f"請問是早上{hour}點還是晚上{hour}點{action_tail}呢？"
+            )
             self.state.needs_clarification = True
             self.state.clarification_message = question
             self.state.clarification_context = clean_input

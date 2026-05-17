@@ -91,6 +91,7 @@ _HHMM_RE = re.compile(r"\b(\d{1,2}):(\d{2})\b")
 _HHMM_AMPM_RE = re.compile(r"\b(\d{1,2}):(\d{2})\s*(a\.?m\.?|p\.?m\.?)\b", re.IGNORECASE)
 _AMPM_RE = re.compile(r"\b(\d{1,2})\s*(a\.?m\.?|p\.?m\.?)\b", re.IGNORECASE)
 _CHINESE_HOUR_RE = re.compile(r"(\d{1,2})\s*點")
+_ENGLISH_HOUR_RE = re.compile(r"\bat\s+(\d{1,2})\b|\b(\d{1,2})\s*o'?clock\b", re.IGNORECASE)
 _CHINESE_MIN_RE = re.compile(r"\d{1,2}\s*點\s*(\d{1,2})\s*分")
 _CHINESE_HALF_RE = re.compile(r"\d{1,2}\s*點\s*半")
 
@@ -193,29 +194,31 @@ def find_ambiguous_hours(text: str) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     lowered = text.lower()
 
-    for match in _CHINESE_HOUR_RE.finditer(text):
-        hour = int(match.group(1))
-        if hour >= 13 or hour < 0 or hour > 23:
-            continue
-
+    def _process_match(match: re.Match, hour: int) -> None:
+        if hour >= 13:
+            return
         window_start = max(0, match.start() - 4)
         window_end = min(len(text), match.end() + 6)
         window = text[window_start:window_end]
         window_lower = lowered[window_start:window_end]
         if any(word in window or word in window_lower for word in _PERIOD_WORDS):
-            continue
-
+            return
         tail = text[match.end():]
-        tail = re.split(r"[，,。？?！!；;]|以及|並且|還有|再", tail, maxsplit=1)[0].strip()
+        tail = re.split(r"[，,。？?！!；;]|以及|並且|還有|再|,?\s*and\s+then|then", tail, maxsplit=1)[0].strip()
         hint = ""
-        if "關" in tail:
-            hint = "關"
-        elif "開" in tail:
-            hint = "開"
-
-        key = (hour, hint)
+        if "關" in tail or "off" in tail.lower():
+            hint = "關" if "關" in tail else "off"
+        elif "開" in tail or "on" in tail.lower():
+            hint = "開" if "開" in tail else "on"
         if not any(item.get("hour") == hour and item.get("hint") == hint for item in results):
             results.append({"hour": hour, "hint": hint, "tail": tail})
+
+    for match in _CHINESE_HOUR_RE.finditer(text):
+        _process_match(match, int(match.group(1)))
+
+    for match in _ENGLISH_HOUR_RE.finditer(text):
+        raw = match.group(1) or match.group(2)
+        _process_match(match, int(raw))
 
     return results
 
@@ -314,7 +317,7 @@ class ScheduleFastPathParser:
         if recurrence:
             extra["recurrence"] = recurrence
         else:
-            extra["recurrence"] = "once" if has_date else "daily"
+            extra["recurrence"] = "once"
 
         for key in ("year", "month", "day", "weekday"):
             if key in parsed:

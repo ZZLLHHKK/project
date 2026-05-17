@@ -60,16 +60,23 @@ class DateParser:
         return None
 
     def _parse_date(self, text: str) -> Optional[dict]:
-        if "今天" in text:
+        lowered = text.lower()
+
+        if any(w in text for w in ("今天", "今晚", "今夜", "今早", "今朝")) or \
+                any(w in lowered for w in ("today", "tonight", "this morning", "this evening", "this afternoon")):
             d = self.today
             return {"year": d.year, "month": d.month, "day": d.day, "recurrence": "once"}
 
-        if "明天" in text:
+        if "day after tomorrow" in lowered or "後天" in text:
+            d = self.today + timedelta(days=2)
+            return {"year": d.year, "month": d.month, "day": d.day, "recurrence": "once"}
+
+        if any(w in text for w in ("明天", "明早", "明晚", "明夜")) or "tomorrow" in lowered:
             d = self.today + timedelta(days=1)
             return {"year": d.year, "month": d.month, "day": d.day, "recurrence": "once"}
 
-        if "後天" in text:
-            d = self.today + timedelta(days=2)
+        if "大後天" in text:
+            d = self.today + timedelta(days=3)
             return {"year": d.year, "month": d.month, "day": d.day, "recurrence": "once"}
 
         date_patterns = [
