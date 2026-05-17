@@ -16,6 +16,7 @@ _PERIOD_AM_EN = ("am", "a.m.", "morning")
 _PERIOD_PM_EN = ("afternoon", "pm", "p.m.")
 _PERIOD_NIGHT_EN = ("evening", "night", "tonight")
 _PERIOD_NOON_EN = ("noon", "midday")
+_PERIOD_WORDS = _PERIOD_AM + _PERIOD_PM + _PERIOD_NIGHT + _PERIOD_NOON + _PERIOD_AM_EN + _PERIOD_PM_EN + _PERIOD_NIGHT_EN + _PERIOD_NOON_EN
 
 _SCHEDULE_SIGNALS = (
     "每天",
@@ -182,6 +183,41 @@ def has_period_only_no_hour(text: str) -> bool:
     if not period:
         return False
     return not has_time_reference(text)
+
+
+def find_ambiguous_hours(text: str) -> list[dict[str, Any]]:
+    """Return ambiguous Chinese-hour mentions without period (e.g. "8點")."""
+    if not text:
+        return []
+
+    results: list[dict[str, Any]] = []
+    lowered = text.lower()
+
+    for match in _CHINESE_HOUR_RE.finditer(text):
+        hour = int(match.group(1))
+        if hour >= 13 or hour < 0 or hour > 23:
+            continue
+
+        window_start = max(0, match.start() - 4)
+        window_end = min(len(text), match.end() + 6)
+        window = text[window_start:window_end]
+        window_lower = lowered[window_start:window_end]
+        if any(word in window or word in window_lower for word in _PERIOD_WORDS):
+            continue
+
+        tail = text[match.end():]
+        tail = re.split(r"[，,。？?！!；;]|以及|並且|還有|再", tail, maxsplit=1)[0].strip()
+        hint = ""
+        if "關" in tail:
+            hint = "關"
+        elif "開" in tail:
+            hint = "開"
+
+        key = (hour, hint)
+        if not any(item.get("hour") == hour and item.get("hint") == hint for item in results):
+            results.append({"hour": hour, "hint": hint, "tail": tail})
+
+    return results
 
 
 def _make_name(hour: int, minute: int, actions: list[dict[str, Any]], lang: str = "zh") -> str:

@@ -22,6 +22,7 @@ _COMMON_STT_REWRITES = {
     "關登": "關燈",
     "風善": "風扇",
     "溫渡": "溫度",
+    "萬上": "晚上",
 }
 
 
@@ -115,6 +116,25 @@ def _replace_time_with_period(text: str, hour: str, period: str, action_hint: st
         if idx >= 0:
             return text[:idx] + replacement + text[idx + len(token):]
     return text.replace(token, replacement, 1)
+
+
+def _contains_device_word(text: str) -> bool:
+    lowered = (text or "").lower()
+    return any(
+        token in text or token in lowered
+        for token in (
+            "燈",
+            "風扇",
+            "溫度",
+            "冷氣",
+            "空調",
+            "light",
+            "fan",
+            "temperature",
+            "ac",
+            "air conditioner",
+        )
+    )
 
 
 class ActionExecutionError(RuntimeError):
@@ -558,6 +578,20 @@ class SmartHomeAgent:
                     self.state.needs_clarification = False
                     self.state.clarification_message = None
                     self.state.clarification_context = None
+
+                    from src.core.parser.schedule_parser import find_ambiguous_hours
+
+                    remaining_hours = find_ambiguous_hours(clean_input)
+                    if remaining_hours and _contains_device_word(clean_input):
+                        next_item = remaining_hours[0]
+                        next_hour = int(next_item.get("hour", 0))
+                        next_tail = (next_item.get("tail", "") or "").strip()
+                        next_question = f"請問是早上{next_hour}點還是晚上{next_hour}點{next_tail}呢？"
+                        self.state.needs_clarification = True
+                        self.state.clarification_message = next_question
+                        self.state.clarification_context = clean_input
+                        self.memory.add_interaction(clean_input, next_question)
+                        return self._build_result(next_question, [], None)
                 else:
                     clean_input = _resolve_period_choice(self.state.clarification_context, period)
                     self.state.needs_clarification = False
@@ -601,6 +635,20 @@ class SmartHomeAgent:
 
         # Step 3: schedule fastpath minimal CRUD
         # 1. add
+        from src.core.parser.schedule_parser import find_ambiguous_hours
+
+        ambiguous_hours = find_ambiguous_hours(clean_input)
+        if ambiguous_hours and _contains_device_word(clean_input):
+            first = ambiguous_hours[0]
+            hour = int(first.get("hour", 0))
+            action_tail = (first.get("tail", "") or "").strip()
+            question = f"請問是早上{hour}點還是晚上{hour}點{action_tail}呢？"
+            self.state.needs_clarification = True
+            self.state.clarification_message = question
+            self.state.clarification_context = clean_input
+            self.memory.add_interaction(clean_input, question)
+            return self._build_result(question, [], None)
+
         parsed_add = self.schedule_parser.parse_add(clean_input, lang=lang)
         if parsed_add is not None:
             rule = self.scheduler.add(
