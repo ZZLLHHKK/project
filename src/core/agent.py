@@ -47,6 +47,35 @@ def _has_temperature_condition(text: str) -> bool:
     )
 
 
+_CLARIFY_PERIOD_ZH = ("早上", "上午", "下午", "晚上", "夜晚", "夜間", "中午", "凌晨")
+_CLARIFY_PERIOD_EN = ("morning", "afternoon", "evening", "night", "noon", "am", "a.m.", "pm", "p.m.")
+
+
+def _is_period_only_response(text: str) -> bool:
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return False
+    if re.search(r"\d|:", cleaned) or "點" in cleaned:
+        return False
+    lowered = cleaned.lower()
+    return any(word in cleaned for word in _CLARIFY_PERIOD_ZH) or any(word in lowered for word in _CLARIFY_PERIOD_EN)
+
+
+def _resolve_period_choice(pending: str, period: str) -> str:
+    if not pending:
+        return period
+
+    resolved = pending
+    for word in _CLARIFY_PERIOD_ZH:
+        resolved = resolved.replace(word, period)
+
+    dup_pattern = re.compile(
+        rf"{re.escape(period)}\s*(\d{{1,2}}(?:[:點]\d{{1,2}})?)\s*(?:還是|或|或者)\s*{re.escape(period)}\s*\1"
+    )
+    resolved = dup_pattern.sub(rf"{period}\1", resolved)
+    return resolved
+
+
 class ActionExecutionError(RuntimeError):
     """Compatibility placeholder for older call sites."""
 
@@ -452,6 +481,17 @@ class SmartHomeAgent:
         if not clean_input:
             return self._build_result(_t(lang, "請告訴我你想控制的設備或需求。", "Please tell me what you need."), [], None)
 
+        if self.state.needs_clarification and self.state.clarification_context:
+            if _is_period_only_response(clean_input):
+                clean_input = _resolve_period_choice(self.state.clarification_context, clean_input)
+                self.state.needs_clarification = False
+                self.state.clarification_message = None
+                self.state.clarification_context = None
+            else:
+                self.state.needs_clarification = False
+                self.state.clarification_message = None
+                self.state.clarification_context = None
+
         lower_input = clean_input.lower()
 
         standby_zh = ("掰掰", "再見", "待機", "拜拜")
@@ -603,11 +643,13 @@ class SmartHomeAgent:
         if intent == "unclear":
             self.state.needs_clarification = True
             self.state.clarification_message = reply
+            self.state.clarification_context = clean_input
             self.memory.add_interaction(clean_input, reply)
             return self._build_result(reply, [], None)
 
         self.state.needs_clarification = False
         self.state.clarification_message = None
+        self.state.clarification_context = None
 
         if intent == "error":
             self.memory.add_interaction(clean_input, reply)

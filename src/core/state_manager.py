@@ -21,6 +21,7 @@ class StateManager:
         self.mode: str = "normal"
         self.needs_clarification: bool = False
         self.clarification_message: str | None = None
+        self.clarification_context: str | None = None
         self.ambient_temp: int | None = None
         self.ambient_humidity: int | None = None
 
@@ -137,6 +138,7 @@ class StateManager:
     def reset_conversation(self) -> None:
         self.needs_clarification = False
         self.clarification_message = None
+        self.clarification_context = None
 
     def get_state(self) -> dict[str, Any]:
         return {
@@ -147,6 +149,7 @@ class StateManager:
             "mode": self.mode,
             "needs_clarification": self.needs_clarification,
             "clarification_message": self.clarification_message,
+            "clarification_context": self.clarification_context,
             "ambient_temp": self.ambient_temp,
             "ambient_humidity": self.ambient_humidity,
         }
