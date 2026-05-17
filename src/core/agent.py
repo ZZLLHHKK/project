@@ -596,6 +596,9 @@ class SmartHomeAgent:
             self.memory.add_interaction(clean_input, reply)
             return self._build_result(reply, [], None)
 
+        rules = self.memory.load_rules()
+        clean_input = self.fastpath.apply_rules(clean_input, rules)
+
         # Step 3: schedule fastpath minimal CRUD
         # 1. add
         parsed_add = self.schedule_parser.parse_add(clean_input, lang=lang)
@@ -696,7 +699,6 @@ class SmartHomeAgent:
             and _has_time_ref(clean_input)
         )
 
-        rules = self.memory.load_rules()
         fast_actions = None if _has_delete_intent else self.fastpath.parse(clean_input, rules=rules)
         print(f"[AGENT ACTIONS] {fast_actions}")
         if fast_actions:
