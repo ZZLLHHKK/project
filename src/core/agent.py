@@ -49,6 +49,10 @@ def _has_temperature_condition(text: str) -> bool:
 
 _CLARIFY_PERIOD_ZH = ("早上", "上午", "下午", "晚上", "夜晚", "夜間", "中午", "凌晨")
 _CLARIFY_PERIOD_EN = ("morning", "afternoon", "evening", "night", "noon", "am", "a.m.", "pm", "p.m.")
+_CLARIFY_PAIR_RE = re.compile(
+    r"(早上|上午|下午|晚上|夜晚|夜間|中午|凌晨)(\d{1,2})點\s*還是\s*"
+    r"(早上|上午|下午|晚上|夜晚|夜間|中午|凌晨)(\d{1,2})點(?P<tail>[^？?以及]*)"
+)
 
 
 def _is_period_only_response(text: str) -> bool:
@@ -74,6 +78,43 @@ def _resolve_period_choice(pending: str, period: str) -> str:
     )
     resolved = dup_pattern.sub(rf"{period}\1", resolved)
     return resolved
+
+
+def _extract_time_choice_pairs(text: str) -> list[dict[str, str]]:
+    pairs: list[dict[str, str]] = []
+    for match in _CLARIFY_PAIR_RE.finditer(text or ""):
+        action_hint = (match.group("tail") or "").strip()
+        pairs.append(
+            {
+                "p1": match.group(1),
+                "h1": match.group(2),
+                "p2": match.group(3),
+                "h2": match.group(4),
+                "action": action_hint,
+            }
+        )
+    return pairs
+
+
+def _format_choice_question(pair: dict[str, str]) -> str:
+    action = pair.get("action", "").strip()
+    return f"請問是{pair['p1']}{pair['h1']}點還是{pair['p2']}{pair['h2']}點{action}呢？"
+
+
+def _replace_time_with_period(text: str, hour: str, period: str, action_hint: str) -> str:
+    if not text:
+        return text
+    token = f"{hour}點"
+    replacement = f"{period}{hour}點"
+    if action_hint and "關" in action_hint:
+        idx = text.rfind(token)
+        if idx >= 0:
+            return text[:idx] + replacement + text[idx + len(token):]
+    if action_hint and "開" in action_hint:
+        idx = text.find(token)
+        if idx >= 0:
+            return text[:idx] + replacement + text[idx + len(token):]
+    return text.replace(token, replacement, 1)
 
 
 class ActionExecutionError(RuntimeError):
@@ -483,10 +524,45 @@ class SmartHomeAgent:
 
         if self.state.needs_clarification and self.state.clarification_context:
             if _is_period_only_response(clean_input):
-                clean_input = _resolve_period_choice(self.state.clarification_context, clean_input)
-                self.state.needs_clarification = False
-                self.state.clarification_message = None
-                self.state.clarification_context = None
+                period = clean_input
+                question = self.state.clarification_message or ""
+                pairs = _extract_time_choice_pairs(question)
+                if pairs:
+                    target_pair = None
+                    for pair in pairs:
+                        if period in (pair.get("p1"), pair.get("p2")):
+                            target_pair = pair
+                            break
+                    if target_pair is None:
+                        target_pair = pairs[-1]
+
+                    chosen_hour = target_pair["h1"] if period == target_pair.get("p1") else target_pair["h2"]
+                    updated = _replace_time_with_period(
+                        self.state.clarification_context,
+                        chosen_hour,
+                        period,
+                        target_pair.get("action", ""),
+                    )
+
+                    remaining = [p for p in pairs if p is not target_pair]
+                    if remaining:
+                        follow_up = f"收到，{period}{chosen_hour}點{target_pair.get('action', '')}。"
+                        follow_up += _format_choice_question(remaining[0])
+                        self.state.needs_clarification = True
+                        self.state.clarification_message = follow_up
+                        self.state.clarification_context = updated
+                        self.memory.add_interaction(clean_input, follow_up)
+                        return self._build_result(follow_up, [], None)
+
+                    clean_input = updated
+                    self.state.needs_clarification = False
+                    self.state.clarification_message = None
+                    self.state.clarification_context = None
+                else:
+                    clean_input = _resolve_period_choice(self.state.clarification_context, period)
+                    self.state.needs_clarification = False
+                    self.state.clarification_message = None
+                    self.state.clarification_context = None
             else:
                 self.state.needs_clarification = False
                 self.state.clarification_message = None
