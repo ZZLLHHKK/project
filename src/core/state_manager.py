@@ -95,6 +95,7 @@ class StateManager:
             action_type = str(action.get("type", "")).upper()
             if action_type == "SET_TEMP":
                 self.temperature = int(action.get("value", self.temperature))
+                self.ac = "on"  # Method A: setting temperature implicitly turns AC on
                 changed = True
             elif action_type == "FAN":
                 self.fan = str(action.get("state", self.fan)).lower()
