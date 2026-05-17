@@ -6,6 +6,7 @@ from typing import Any, Optional
 
 from src.core.date_parser import DateParser
 from src.core.parser.fastpath_parser import _normalize_number_words
+from src.core.parser.fastpath_parser import KW_OFF, KW_ON
 
 _PERIOD_AM = ("上午", "早上", "早晨", "凌晨")
 _PERIOD_PM = ("下午", "傍晚")
@@ -213,6 +214,34 @@ def _make_name(hour: int, minute: int, actions: list[dict[str, Any]], lang: str 
     return f"{hour:02d}:{minute:02d} {label}"
 
 
+def _find_last_time_span(text: str) -> Optional[tuple[int, int]]:
+    last_span: Optional[tuple[int, int]] = None
+    for pattern in (_HHMM_AMPM_RE, _HHMM_RE, _AMPM_RE, _CHINESE_HOUR_RE):
+        for match in pattern.finditer(text):
+            last_span = match.span()
+    return last_span
+
+
+def _infer_fan_action_from_time_clause(text: str) -> Optional[list[dict[str, Any]]]:
+    if "風扇" not in text and "fan" not in text.lower():
+        return None
+
+    time_span = _find_last_time_span(text)
+    if not time_span:
+        return None
+
+    clause = text[time_span[0]:]
+    clause_lower = clause.lower()
+    has_on = any(word in clause or word in clause_lower for word in KW_ON)
+    has_off = any(word in clause or word in clause_lower for word in KW_OFF)
+
+    if has_off and not has_on:
+        return [{"type": "FAN", "state": "off"}]
+    if has_on and not has_off:
+        return [{"type": "FAN", "state": "on"}]
+    return None
+
+
 class ScheduleFastPathParser:
     """Fastpath parser for schedule add/manage commands."""
 
@@ -231,6 +260,12 @@ class ScheduleFastPathParser:
         from .fastpath_parser import FastPathParser
 
         actions = FastPathParser().parse(text)
+        if not actions:
+            actions = _infer_fan_action_from_time_clause(text)
+        else:
+            inferred = _infer_fan_action_from_time_clause(text)
+            if inferred and len(actions) == 1 and str(actions[0].get("type", "")).upper() == "SET_TEMP":
+                actions = inferred
         if not actions:
             return None
 

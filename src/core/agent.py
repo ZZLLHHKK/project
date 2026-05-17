@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import re
 from typing import Any, Optional
 
 from .memory_agent import MemoryAgent
@@ -33,6 +34,17 @@ def _normalize_input(text: str) -> str:
     for wrong, corrected in _COMMON_STT_REWRITES.items():
         normalized = normalized.replace(wrong, corrected)
     return normalized
+
+
+def _has_temperature_condition(text: str) -> bool:
+    lowered = (text or "").lower()
+    if "如果" not in text and "if" not in lowered:
+        return False
+    if "溫度" not in text and "temperature" not in lowered:
+        return False
+    return any(token in text for token in ("超過", "高於", "大於", "以上", ">")) or any(
+        token in lowered for token in ("over", "above", ">")
+    )
 
 
 class ActionExecutionError(RuntimeError):
@@ -495,6 +507,12 @@ class SmartHomeAgent:
                     f"好的，已設定排程：{parsed_add['name']}。",
                     f"Schedule set: {parsed_add['name']}.",
                 )
+                if _has_temperature_condition(clean_input):
+                    reply += _t(
+                        lang,
+                        "目前不支援溫度條件自動化；需要固定時間排程或手動開啟。",
+                        " Temperature-based automation is not supported yet; use a fixed-time schedule or manual control.",
+                    )
             self.memory.add_interaction(clean_input, reply)
             return self._build_result(reply, [], None)
 
