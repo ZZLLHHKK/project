@@ -2,6 +2,12 @@
 
 以 Python 為核心的智慧家庭控制專案，支援中英文雙語語音輸入與 GUI 操作，可部署於 Raspberry Pi 並透過 GPIO 控制實體硬體。
 
+## 相關連結
+
+專題報告：[專題報告](docs/專題報告.pdf)  
+專題海報：[專題海報](docs/專題海報.pdf)  
+專題 demo 影片：[https://youtu.be/LaGd8lhTnQE](https://youtu.be/LaGd8lhTnQE)
+
 ## 系統功能
 
 - **語音辨識**：使用 faster-whisper 進行本地語音轉文字，支援中英文自動偵測
@@ -113,8 +119,9 @@ project/
 │   ├── models/                     # TTS 模型（.onnx）
 │   ├── memory/                     # 排程、規則、短期/長期記憶
 │   └── recordings/                 # 語音錄音暫存
+├── tests/                           # 測試腳本
 ├── scripts/
-│   └── setup.sh                    # 安裝腳本
+│   └── setup.sh                    # 相容入口（轉呼叫根目錄 setup.sh）
 ├── requirements/
 │   ├── base.txt                    # 核心依賴
 │   ├── pi.txt                      # 樹莓派硬體依賴
