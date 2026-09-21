@@ -1,0 +1,4 @@
+﻿scope,samples,stt_ms_mean,stt_ms_p95,stt_ms_pct,parse_ms_mean,parse_ms_p95,parse_ms_pct,action_ms_mean,action_ms_p95,action_ms_pct,tts_ms_mean,tts_ms_p95,tts_ms_pct,end_to_end_ms_mean,end_to_end_ms_p95
+overall,144,504.3,536.95,12.9,760.43,3815.67,19.4,0.71,1.15,0.0,2652.26,4252.54,67.7,3917.7,7780.69
+route:fastpath,111,508.95,546.0,18.0,0.02,0.03,0.0,0.64,0.94,0.0,2324.05,2622.85,82.0,2833.68,3122.35
+route:gemini,33,488.65,501.9,6.5,3318.18,6002.16,43.9,0.91,1.34,0.0,3756.22,7773.94,49.7,7563.96,14703.98

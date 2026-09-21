@@ -1,0 +1,2 @@
+env_id,device,os,runtime_mode,python_version,whisper_device,compute_type,cpu_threads,mic_device,sample_rate_hz,record_seconds,network_mode,ssh_enabled,note
+PI_ENV_001,raspberry_pi_4b,raspios_bookworm,hardware,cpython3.11,cpu,int8,4,plughw:3,0,16000,5,local_wifi,yes,pre-test baseline environment
