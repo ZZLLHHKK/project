@@ -26,7 +26,6 @@ data/memory/rules.json
 scripts/.venv/
 *.pdf
 *.docx
-!docs/*.pdf
 
 # PyInstaller 打包產出
 build/
