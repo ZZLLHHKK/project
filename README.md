@@ -4,8 +4,8 @@
 
 ## 相關連結
 
-專題報告：[專題報告](docs/專題報告.pdf)  
-專題海報：[專題海報](docs/專題海報.pdf)  
+專題報告：[專題報告](https://github.com/ZZLLHHKK/project/blob/main/docs/專題報告.pdf?raw=true)  
+專題海報：[專題海報](https://github.com/ZZLLHHKK/project/blob/main/docs/專題海報.pdf?raw=true)  
 專題 demo 影片：[https://youtu.be/LaGd8lhTnQE](https://youtu.be/LaGd8lhTnQE)
 
 ## 系統功能
